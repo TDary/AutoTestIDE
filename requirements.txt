@@ -1,0 +1,2 @@
+# Plan 1: no runtime dependencies (pure stdlib).
+# PyQt5, QScintilla, Jinja2, psutil added in later plans.
