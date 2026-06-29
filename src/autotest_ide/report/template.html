@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>AutoTest IDE - 测试报告</title>
+    <link rel="stylesheet" href="report.css">
+</head>
+<body>
+    <div class="container">
+        <h1>测试报告</h1>
+
+        <div class="summary">
+            <table>
+                <tr><th>脚本</th><td>{{ summary.script }}</td></tr>
+                <tr><th>设备类型</th><td>{{ summary.device_type }}</td></tr>
+                <tr><th>设备序列号</th><td>{{ summary.device_serial }}</td></tr>
+                <tr><th>开始时间</th><td>{{ summary.start_time | round(2) }}</td></tr>
+                <tr><th>结束时间</th><td>{{ summary.end_time | round(2) }}</td></tr>
+                <tr><th>总步骤</th><td>{{ summary.total_steps }}</td></tr>
+                <tr><th>通过</th><td class="pass">{{ summary.passed }}</td></tr>
+                <tr><th>失败</th><td class="fail">{{ summary.failed }}</td></tr>
+                <tr><th>状态</th><td class="{{ summary.status }}">{{ summary.status }}</td></tr>
+            </table>
+        </div>
+
+        <h2>步骤详情</h2>
+        <div class="steps">
+            {% for step in steps %}
+            <div class="step {{ step.status }}">
+                <div class="step-header">
+                    <span class="step-index">#{{ step.index }}</span>
+                    <span class="step-name">{{ step.name }}</span>
+                    <span class="step-status">{{ step.status }}</span>
+                </div>
+                {% if step.error %}
+                <div class="step-error">{{ step.error }}</div>
+                {% endif %}
+                {% if step.screenshot %}
+                <div class="step-screenshot">
+                    <img src="{{ step.screenshot }}" alt="step {{ step.index }}" onclick="zoom(this)">
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    <script src="report.js"></script>
+</body>
+</html>

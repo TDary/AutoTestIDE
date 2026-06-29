@@ -203,6 +203,10 @@ class FakePocoServer:
                     "code": -32000, "message": f"node not found: {node_id}"
                 }}
             return {"jsonrpc": "2.0", "id": seq, "result": found["payload"]}
+        if method == "click":
+            return {"jsonrpc": "2.0", "id": seq, "result": {}}
+        if method == "set_text":
+            return {"jsonrpc": "2.0", "id": seq, "result": {}}
         if method == "inspect_by_point":
             x = params.get("x", 0)
             y = params.get("y", 0)

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
@@ -12,8 +14,11 @@ from autotest_ide.ui.tree_panel import TreePanel
 from autotest_ide.ui.property_panel import PropertyPanel
 from autotest_ide.ui.console import Console
 from autotest_ide.ui.threads import ScreenshotWorker, PocoWorker, DeviceBridge
+from autotest_ide.ui.run_controller import RunController
+from autotest_ide.ui.report_view import ReportView
 from autotest_ide.core.device_manager import DeviceManager
 from autotest_ide.core.locator import generate_locator
+from autotest_ide.report import render_report
 
 
 class MainWindow(QMainWindow):
@@ -26,6 +31,8 @@ class MainWindow(QMainWindow):
         self._screenshot_worker = None
         self._poco_worker = None
         self._device_bridge = None
+        self._run_controller = RunController(self)
+        self._report_view = None
 
         self._init_menubar()
         self._init_toolbar()
@@ -115,6 +122,14 @@ class MainWindow(QMainWindow):
 
     def _init_connections(self):
         self.device_panel.inspect_requested.connect(self._on_inspect_requested)
+        self._run_controller.output_received.connect(
+            lambda text, is_err: self.console.append_text(text, is_err)
+        )
+        self._run_controller.run_started.connect(self._on_run_started)
+        self._run_controller.run_finished.connect(self._on_run_finished)
+        self._run_controller.run_stopped.connect(self._on_run_stopped)
+        self.run_action.triggered.connect(self._on_run_clicked)
+        self.stop_action.triggered.connect(self._on_stop_clicked)
 
     def _refresh_devices(self):
         self.device_combo.clear()
@@ -234,6 +249,46 @@ class MainWindow(QMainWindow):
         for child in root.get("children", []):
             nodes.extend(self._flatten_tree(child))
         return nodes
+
+    def _on_run_clicked(self):
+        device = self._device_mgr.active
+        if not device or device.status != "online":
+            self.console.append_text("错误: 没有在线设备", is_error=True)
+            return
+        air_dir = "test.air"
+        self._run_controller.start(
+            air_dir, device.device_type, device.name,
+            self._device_mgr.active.poco._port,
+        )
+
+    def _on_stop_clicked(self):
+        self._run_controller.stop()
+
+    def _on_run_started(self):
+        self.run_action.setEnabled(False)
+        self.stop_action.setEnabled(True)
+        self.device_panel.setEnabled(False)
+
+    def _on_run_finished(self, exit_code: int, report_path: str):
+        self.run_action.setEnabled(True)
+        self.stop_action.setEnabled(False)
+        self.device_panel.setEnabled(True)
+        self.console.append_text(f"脚本结束 (exit code: {exit_code})")
+        if report_path and Path(report_path).exists():
+            html_path = str(Path(report_path).parent / "report.html")
+            try:
+                render_report(Path(report_path), Path(html_path))
+                if self._report_view is None:
+                    self._report_view = ReportView()
+                self._report_view.show_report(html_path)
+                self._report_view.show()
+            except Exception as e:
+                self.console.append_text(f"报告渲染失败: {e}", is_error=True)
+
+    def _on_run_stopped(self):
+        self.run_action.setEnabled(True)
+        self.stop_action.setEnabled(False)
+        self.device_panel.setEnabled(True)
 
     def closeEvent(self, event):
         self._stop_screenshot_worker()

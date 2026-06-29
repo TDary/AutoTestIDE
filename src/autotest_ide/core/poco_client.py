@@ -176,3 +176,9 @@ class PocoClient:
             return True
         except PocoError:
             return False
+
+    def click(self, x: int, y: int) -> dict:
+        return self._request_json("click", {"x": x, "y": y})
+
+    def set_text(self, node_id: str, text: str) -> dict:
+        return self._request_json("set_text", {"node_id": node_id, "text": text})
