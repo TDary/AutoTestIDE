@@ -53,6 +53,7 @@ class FakePocoServer:
         self._client_sock = None
         self.delay = 0.0  # seconds to wait before responding (for timeout tests)
         self.drop_on_next = False  # if True, close the client connection on next request
+        self.fail_next_request = False  # if True, return a JSON-RPC error on next request (keeps connection open)
         self._binary_seq_counter = 0
         self._binary_seq_lock = threading.Lock()
         self._pending_screenshots: dict = {}
@@ -123,6 +124,18 @@ class FakePocoServer:
                     pass
                 self.drop_on_next = False
                 return
+            if self.fail_next_request:
+                self.fail_next_request = False
+                seq = msg.get("id")
+                try:
+                    conn.sendall(encode_json_frame({
+                        "jsonrpc": "2.0", "id": seq, "error": {
+                            "code": -32603, "message": "internal error (simulated)"
+                        }
+                    }))
+                except OSError:
+                    return
+                continue
             if self.delay > 0:
                 time.sleep(self.delay)
             self._handle(conn, msg)

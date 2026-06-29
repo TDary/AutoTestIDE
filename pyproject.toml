@@ -18,3 +18,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "real_device: real Android device smoke test (requires --run-real-device)",
+]

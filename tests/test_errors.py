@@ -6,6 +6,9 @@ from autotest_ide.core.errors import (
     PocoProtocolError,
     PocoRemoteError,
     PocoNodeNotFoundError,
+    DeviceError,
+    ForwarderError,
+    DeviceDiscoveryError,
 )
 
 
@@ -32,3 +35,14 @@ def test_poco_remote_error_carries_code_message_data():
 def test_poco_remote_error_data_defaults_none():
     err = PocoRemoteError(code=1, message="boom")
     assert err.data is None
+
+
+def test_device_errors_subclass_device_error():
+    for exc in [ForwarderError("x"), DeviceDiscoveryError("x")]:
+        assert isinstance(exc, DeviceError)
+
+
+def test_device_error_is_not_poco_error():
+    err = ForwarderError("x")
+    assert not isinstance(err, PocoError)
+    assert not isinstance(PocoConnectionError("x"), DeviceError)

@@ -1,0 +1,143 @@
+import threading
+from typing import Callable, Optional
+
+from autotest_ide.core.errors import DeviceError, ForwarderError, PocoConnectionError
+from autotest_ide.core.forwarder import PortForwarder
+from autotest_ide.core.poco_client import PocoClient
+
+
+class Device:
+    """A connectable device wrapping a PortForwarder + PocoClient with a state machine."""
+
+    def __init__(self, name: str, device_type: str, forwarder: PortForwarder,
+                 heartbeat_interval: float = 5.0):
+        self._name = name
+        self._device_type = device_type
+        self._forwarder = forwarder
+        self._heartbeat_interval = heartbeat_interval
+        self._poco: Optional[PocoClient] = None
+        self._status = "disconnected"
+        self._heartbeat_thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+        self._heartbeat_failures = 0
+        self._on_status_change: Callable[[str], None] = lambda s: None
+        self._lock = threading.Lock()
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def device_type(self) -> str:
+        return self._device_type
+
+    @property
+    def status(self) -> str:
+        return self._status
+
+    @property
+    def poco(self) -> PocoClient:
+        if self._status != "online" or self._poco is None:
+            raise DeviceError(f"device not online: status={self._status}")
+        return self._poco
+
+    def on_status_change(self, callback: Callable[[str], None]) -> None:
+        self._on_status_change = callback
+
+    def _set_status(self, status: str) -> None:
+        with self._lock:
+            self._status = status
+        try:
+            self._on_status_change(status)
+        except Exception:
+            pass
+
+    def connect(self) -> None:
+        if self._status not in ("disconnected", "offline"):
+            raise DeviceError(f"already {self._status}")
+        self._do_connect()
+
+    def reconnect(self) -> None:
+        if self._status != "offline":
+            raise DeviceError(f"reconnect only allowed from offline, current={self._status}")
+        self._do_connect()
+
+    def _do_connect(self) -> None:
+        self._set_status("connecting")
+        try:
+            self._forwarder.start()
+        except ForwarderError:
+            self._set_status("offline")
+            return
+        poco = PocoClient(host="127.0.0.1", port=self._forwarder.local_port)
+        try:
+            poco.connect()
+        except PocoConnectionError:
+            try:
+                self._forwarder.stop()
+            except Exception:
+                pass
+            self._set_status("offline")
+            return
+        self._poco = poco
+        self._heartbeat_failures = 0
+        self._stop_event.clear()
+        self._set_status("online")
+        self._start_heartbeat()
+
+    def _start_heartbeat(self) -> None:
+        self._heartbeat_thread = threading.Thread(
+            target=self._heartbeat_loop, daemon=True,
+        )
+        self._heartbeat_thread.start()
+
+    def _heartbeat_loop(self) -> None:
+        while not self._stop_event.wait(timeout=self._heartbeat_interval):
+            if self._status != "online":
+                return
+            if self._poco is None:
+                return
+            try:
+                ok = self._poco.heartbeat()
+            except Exception:
+                ok = False
+            with self._lock:
+                if not ok:
+                    self._heartbeat_failures += 1
+                    should_flip = self._heartbeat_failures >= 3
+                else:
+                    self._heartbeat_failures = 0
+                    should_flip = False
+            if should_flip:
+                self._set_status("offline")
+                return
+
+    def health_check(self) -> bool:
+        if self._status != "online" or self._poco is None:
+            return False
+        try:
+            ok = self._poco.heartbeat()
+        except Exception:
+            ok = False
+        if not ok:
+            with self._lock:
+                self._heartbeat_failures = 3
+            self._set_status("offline")
+        return ok
+
+    def disconnect(self) -> None:
+        self._stop_event.set()
+        if self._heartbeat_thread is not None:
+            self._heartbeat_thread.join(timeout=2.0)
+            self._heartbeat_thread = None
+        if self._poco is not None:
+            try:
+                self._poco.close()
+            except Exception:
+                pass
+            self._poco = None
+        try:
+            self._forwarder.stop()
+        except Exception:
+            pass
+        self._set_status("disconnected")

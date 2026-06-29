@@ -29,3 +29,15 @@ class PocoRemoteError(PocoError):
 
 class PocoNodeNotFoundError(PocoError):
     """A referenced node id no longer exists on the server."""
+
+
+class DeviceError(Exception):
+    """Base class for all device-layer errors (connection, forwarding, discovery)."""
+
+
+class ForwarderError(DeviceError):
+    """Port forwarding failed (adb error, bad stdout, adb not in PATH)."""
+
+
+class DeviceDiscoveryError(DeviceError):
+    """Device discovery failed (adb devices parse error, port probe error)."""
