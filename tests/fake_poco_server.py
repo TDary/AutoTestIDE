@@ -1,7 +1,7 @@
 import threading
 import time
 
-from autotest_ide.core.protocol import encode_json_frame, read_json_frame
+from autotest_ide.core.protocol import encode_command, encode_json_frame, read_command
 
 FIXED_UI_TREE = {
     "node_id": "root",
@@ -42,7 +42,11 @@ TINY_PNG = bytes.fromhex(
 
 
 class FakePocoServer:
-    """A minimal Poco protocol server for tests. Listens on an ephemeral port."""
+    """A minimal Poco protocol server for tests.
+
+    Reads text commands (``CommandName arg1 key1=val1 \\n``),
+    sends length-prefixed JSON/binary responses.
+    """
 
     def __init__(self, host: str = "127.0.0.1", port: int = 0):
         self._host = host
@@ -51,17 +55,9 @@ class FakePocoServer:
         self._thread = None
         self._running = False
         self._client_sock = None
-        self.delay = 0.0  # seconds to wait before responding (for timeout tests)
-        self.drop_on_next = False  # if True, close the client connection on next request
-        self.fail_next_request = False  # if True, return a JSON-RPC error on next request (keeps connection open)
-        self._binary_seq_counter = 0
-        self._binary_seq_lock = threading.Lock()
-        self._pending_screenshots: dict = {}
-
-    def _next_binary_seq(self) -> int:
-        with self._binary_seq_lock:
-            self._binary_seq_counter += 1
-            return self._binary_seq_counter
+        self.delay = 0.0
+        self.drop_on_next = False
+        self.fail_next_request = False
 
     def start(self):
         import socket
@@ -114,9 +110,18 @@ class FakePocoServer:
     def _serve_client(self, conn):
         while self._running:
             try:
-                msg = read_json_frame(conn)
+                method, args = read_command(conn)
             except (ConnectionError, OSError):
                 return
+            # Parse keyword arguments from args
+            params = {}
+            pos_args = []
+            for arg in args:
+                if "=" in arg:
+                    k, v = arg.split("=", 1)
+                    params[k] = v
+                else:
+                    pos_args.append(arg)
             if self.drop_on_next:
                 try:
                     conn.close()
@@ -126,56 +131,22 @@ class FakePocoServer:
                 return
             if self.fail_next_request:
                 self.fail_next_request = False
-                seq = msg.get("id")
                 try:
                     conn.sendall(encode_json_frame({
-                        "jsonrpc": "2.0", "id": seq, "error": {
-                            "code": -32603, "message": "internal error (simulated)"
-                        }
+                        "error": {"code": -32603, "message": "internal error (simulated)"}
                     }))
                 except OSError:
                     return
                 continue
             if self.delay > 0:
                 time.sleep(self.delay)
-            self._handle(conn, msg)
+            self._handle(conn, method, pos_args, params)
 
-    def _handle(self, conn, msg):
-        method = msg.get("method")
-        seq = msg.get("id")
-        params = msg.get("params", {})
-
-        if method == "screenshot":
-            # Respond with a JSON ack carrying a binary_seq, then the caller
-            # will issue binary_read to fetch the bytes.
-            binary_seq = self._next_binary_seq()
-            self._pending_screenshots[binary_seq] = TINY_PNG
-            conn.sendall(encode_json_frame({
-                "jsonrpc": "2.0", "id": seq, "result": {"binary_seq": binary_seq}
-            }))
+    def _handle(self, conn, method, pos_args, kwargs):
+        if method == "GetScreen":
+            self._handle_screen(conn)
             return
-
-        if method == "binary_read":
-            binary_seq = params.get("seq")
-            data = self._pending_screenshots.pop(binary_seq, None)
-            if data is None:
-                conn.sendall(encode_json_frame({
-                    "jsonrpc": "2.0", "id": seq, "error": {
-                        "code": -32002, "message": f"unknown binary seq: {binary_seq}"
-                    }
-                }))
-                return
-            # JSON ack first (so the client recv loop can match the id),
-            # then the raw binary frame.
-            conn.sendall(encode_json_frame({
-                "jsonrpc": "2.0", "id": seq, "result": {"length": len(data)}
-            }))
-            import struct
-            conn.sendall(struct.pack(">I", len(data)) + data)
-            return
-
-        # All other methods go through _dispatch (JSON response).
-        response = self._dispatch(method, params, seq, conn)
+        response = self._dispatch(method, pos_args, kwargs)
         if response is None:
             return
         try:
@@ -183,55 +154,53 @@ class FakePocoServer:
         except OSError:
             return
 
-    def _dispatch(self, method, params, seq, conn):
-        if method == "hello":
-            return {"jsonrpc": "2.0", "id": seq, "result": {
-                "server_version": "fake-1.0",
-                "protocol": "v1",
-            }}
-        if method == "get_screen_size":
-            return {"jsonrpc": "2.0", "id": seq, "result": {"w": 1080, "h": 1920}}
-        if method == "get_root":
-            return {"jsonrpc": "2.0", "id": seq, "result": FIXED_UI_TREE}
-        if method == "dump_hierarchy":
-            depth = params.get("depth")
-            tree = FIXED_UI_TREE
-            if depth == 1:
-                tree = {**FIXED_UI_TREE, "children": []}
-            return {"jsonrpc": "2.0", "id": seq, "result": tree}
-        if method == "get_attributes":
-            node_id = params.get("node_id")
+    def _dispatch(self, method, pos_args, kwargs):
+        if method == "getServerVersion":
+            return "fake-1.0"
+
+        if method == "Dump":
+            only_visible = kwargs.get("onlyVisibleNode", "True")
+            if only_visible == "False":
+                return FIXED_UI_TREE
+            return FIXED_UI_TREE
+
+        if method == "GetNodeAttr":
+            node_id = pos_args[0] if pos_args else ""
             found = self._find_node(FIXED_UI_TREE, node_id)
             if found is None:
-                return {"jsonrpc": "2.0", "id": seq, "error": {
-                    "code": -32000, "message": f"node not found: {node_id}"
-                }}
-            return {"jsonrpc": "2.0", "id": seq, "result": found["payload"]}
-        if method == "click":
-            return {"jsonrpc": "2.0", "id": seq, "result": {}}
-        if method == "set_text":
-            return {"jsonrpc": "2.0", "id": seq, "result": {}}
-        if method == "inspect_by_point":
-            x = params.get("x", 0)
-            y = params.get("y", 0)
+                return {"error": {"code": -32000, "message": f"node not found: {node_id}"}}
+            return found["payload"]
+
+        if method == "Inspect":
+            x = int(pos_args[0]) if len(pos_args) > 0 else 0
+            y = int(pos_args[1]) if len(pos_args) > 1 else 0
             btn = FIXED_UI_TREE["children"][0]
             b = btn["payload"]["visibleBounds"]
             if b["x"] <= x <= b["x"] + b["width"] and b["y"] <= y <= b["y"] + b["height"]:
-                return {"jsonrpc": "2.0", "id": seq, "result": {
+                return {
                     "node_id": btn["node_id"],
                     "path": ["root", btn["node_id"]],
-                }}
+                }
             if x < 0 or y < 0:
-                return {"jsonrpc": "2.0", "id": seq, "error": {
-                    "code": -32001, "message": "no node at point"
-                }}
-            return {"jsonrpc": "2.0", "id": seq, "result": {
-                "node_id": "root",
-                "path": ["root"],
-            }}
-        return {"jsonrpc": "2.0", "id": seq, "error": {
-            "code": -32601, "message": f"method not found: {method}"
-        }}
+                return {"error": {"code": -32001, "message": "no node at point"}}
+            return {"node_id": "root", "path": ["root"]}
+
+        if method == "Click":
+            return {}
+
+        if method == "SetText":
+            return {}
+
+        if method == "GetScreen":
+            # This is a binary response — handled specially
+            return None  # caller sends binary directly
+
+        return {"error": {"code": -32601, "message": f"method not found: {method}"}}
+
+    def _handle_screen(self, conn):
+        import struct
+        data = TINY_PNG
+        conn.sendall(struct.pack(">I", len(data)) + data)
 
     @staticmethod
     def _find_node(root, node_id):

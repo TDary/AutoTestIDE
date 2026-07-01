@@ -7,6 +7,7 @@ from autotest_ide.core.device import Device
 from autotest_ide.core.errors import DeviceDiscoveryError
 from autotest_ide.core.forwarder import AdbForwarder, LocalForwarder, resolve_adb_path
 from autotest_ide.core.log import getLogger
+from autotest_ide.core.protocol_base import PocoProtocol
 
 logger = getLogger(__name__)
 
@@ -87,22 +88,25 @@ class DeviceManager:
     # --- active device management ---
 
     def connect_android(self, serial: str, remote_port: int = 13000,
-                        name: Optional[str] = None) -> Device:
+                        name: Optional[str] = None,
+                        protocol: Optional[PocoProtocol] = None) -> Device:
         logger.info("Connecting android device serial=%s remote_port=%d", serial, remote_port)
         fwd = AdbForwarder(device_serial=serial, remote_port=remote_port,
                            adb_path=self._adb_path)
-        device = Device(name=name or serial, device_type="android", forwarder=fwd)
+        device = Device(name=name or serial, device_type="android", forwarder=fwd,
+                        protocol=protocol)
         device.connect()
         self._active = device
         self._devices.append(device)
         self._register_atexit()
         return device
 
-    def connect_local(self, port: int, name: Optional[str] = None) -> Device:
+    def connect_local(self, port: int, name: Optional[str] = None,
+                      protocol: Optional[PocoProtocol] = None) -> Device:
         logger.info("Connecting local device port=%d", port)
         fwd = LocalForwarder(local_port=port)
         device = Device(name=name or f"localhost:{port}", device_type="windows",
-                        forwarder=fwd)
+                        forwarder=fwd, protocol=protocol)
         device.connect()
         self._active = device
         self._devices.append(device)

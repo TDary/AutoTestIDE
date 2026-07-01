@@ -4,6 +4,7 @@ Loads and executes the user's .air/script.py with an injected namespace
 containing poco, snapshot, assert_exists, log.
 """
 import argparse
+import importlib
 import os
 import signal
 import sys
@@ -13,11 +14,37 @@ from pathlib import Path
 
 from autotest_ide.core.log import getLogger, setup_logging
 from autotest_ide.core.poco_client import PocoClient
+from autotest_ide.core.protocol_base import PocoProtocol
+from autotest_ide.core.protocol_poco import PocoTextProtocol
 from autotest_ide.runner.recorder import RecordingPocoClient
 from autotest_ide.runner.reporter import Reporter
 from autotest_ide.runner.runtime import build_namespace
 
 logger = getLogger(__name__)
+
+PROTOCOL_REGISTRY = {
+    "poco": "autotest_ide.core.protocol_poco:PocoTextProtocol",
+    "jx4": "autotest_ide.sdks.jx4.protocol:JX4Protocol",
+}
+
+
+def _load_protocol(spec: str) -> PocoProtocol:
+    """Load a protocol class from a ``package.module:ClassName`` spec."""
+    if ":" in spec:
+        module_path, class_name = spec.rsplit(":", 1)
+    else:
+        # short name → look up in registry
+        class_name = spec
+        module_path = None
+        if spec in PROTOCOL_REGISTRY:
+            full_spec = PROTOCOL_REGISTRY[spec]
+            module_path, class_name = full_spec.rsplit(":", 1)
+        else:
+            # try sdks package
+            module_path = f"autotest_ide.sdks.{spec}.protocol"
+    mod = importlib.import_module(module_path)
+    cls = getattr(mod, class_name)
+    return cls()
 
 
 def _watchdog(timeout: int):
@@ -33,6 +60,8 @@ def main():
     parser.add_argument("--device-serial", default="", help="Device serial")
     parser.add_argument("--poco-port", type=int, default=13000, help="Poco service port")
     parser.add_argument("--timeout", type=int, default=600, help="Overall timeout in seconds")
+    parser.add_argument("--protocol", default="poco",
+                        help="Protocol adapter name or package.module:Class spec")
     args = parser.parse_args()
 
     air_dir = Path(args.air_dir).resolve()
@@ -47,6 +76,13 @@ def main():
         logger.error("Script not found: %s", script_path)
         sys.exit(1)
 
+    # Load protocol adapter
+    try:
+        protocol = _load_protocol(args.protocol)
+    except Exception as e:
+        logger.error("Failed to load protocol %r: %s", args.protocol, e)
+        protocol = PocoTextProtocol()
+
     # Setup timeout: POSIX uses SIGALRM, Windows uses watchdog thread
     if hasattr(signal, "SIGALRM"):
         signal.alarm(args.timeout)
@@ -54,7 +90,7 @@ def main():
         t = threading.Thread(target=_watchdog, args=(args.timeout,), daemon=True)
         t.start()
 
-    poco = PocoClient(host="127.0.0.1", port=args.poco_port)
+    poco = PocoClient(host="127.0.0.1", port=args.poco_port, protocol=protocol)
     try:
         poco.connect()
     except Exception as e:

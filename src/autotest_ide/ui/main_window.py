@@ -213,7 +213,7 @@ class MainWindow(QMainWindow):
         if device.status == "online":
             self._start_screenshot_worker(device)
             self._cached_root = device.poco.get_root()
-            self._cached_flat = self._flatten_tree(self._cached_root)
+            self._cached_flat = device.poco._flatten_tree(self._cached_root)
             self.tree_panel.load_tree(self._cached_root)
 
     def _disconnect_device(self):
@@ -297,16 +297,6 @@ class MainWindow(QMainWindow):
         except Exception:
             logger.debug("Failed to find node %s in tree", node_id, exc_info=True)
             return None
-
-    def _flatten_tree(self, root: dict) -> list:
-        nodes = []
-        stack = [root]
-        while stack:
-            node = stack.pop()
-            nodes.append(node)
-            for child in reversed(node.get("children", [])):
-                stack.append(child)
-        return nodes
 
     def _check_unsaved(self) -> bool:
         if self.editor.document().isModified():

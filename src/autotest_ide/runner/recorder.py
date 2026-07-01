@@ -16,14 +16,11 @@ class RecordingPocoClient:
     def get_root(self):
         return self._inner.get_root()
 
-    def dump_hierarchy(self, depth=None):
-        return self._inner.dump_hierarchy(depth)
+    def dump_hierarchy(self, only_visible=True):
+        return self._inner.dump_hierarchy(only_visible)
 
-    def get_screen_size(self):
-        return self._inner.get_screen_size()
-
-    def get_attributes(self, node_id):
-        return self._inner.get_attributes(node_id)
+    def get_attributes(self, node_id, attr=""):
+        return self._inner.get_attributes(node_id, attr)
 
     def inspect_by_point(self, x, y):
         return self._inner.inspect_by_point(x, y)

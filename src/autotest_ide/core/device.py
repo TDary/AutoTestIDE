@@ -5,6 +5,7 @@ from autotest_ide.core.errors import DeviceError, ForwarderError, PocoConnection
 from autotest_ide.core.forwarder import PortForwarder
 from autotest_ide.core.log import getLogger
 from autotest_ide.core.poco_client import PocoClient
+from autotest_ide.core.protocol_base import PocoProtocol
 
 logger = getLogger(__name__)
 
@@ -13,11 +14,14 @@ class Device:
     """A connectable device wrapping a PortForwarder + PocoClient with a state machine."""
 
     def __init__(self, name: str, device_type: str, forwarder: PortForwarder,
-                 heartbeat_interval: float = 5.0):
+                 heartbeat_interval: float = 5.0,
+                 protocol: Optional[PocoProtocol] = None):
         self._name = name
         self._device_type = device_type
         self._forwarder = forwarder
         self._heartbeat_interval = heartbeat_interval
+        self._protocol = protocol
+        self._poco: Optional[PocoClient] = None
         self._poco: Optional[PocoClient] = None
         self._status = "disconnected"
         self._heartbeat_thread: Optional[threading.Thread] = None
@@ -75,7 +79,7 @@ class Device:
             logger.warning("Device %s: forwarder start failed", self._name, exc_info=True)
             self._set_status("offline")
             return
-        poco = PocoClient(host="127.0.0.1", port=self._forwarder.local_port)
+        poco = PocoClient(host="127.0.0.1", port=self._forwarder.local_port, protocol=self._protocol)
         try:
             poco.connect()
         except PocoConnectionError:

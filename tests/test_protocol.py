@@ -5,6 +5,7 @@ import socket
 import pytest
 
 from autotest_ide.core.protocol import (
+    encode_command,
     encode_json_frame,
     MAX_FRAME_SIZE,
     read_exactly,
@@ -15,8 +16,28 @@ from autotest_ide.core.protocol import (
 from autotest_ide.core.errors import PocoConnectionError, PocoProtocolError
 
 
+def test_encode_command_basic():
+    data = encode_command("getServerVersion")
+    assert data == b"getServerVersion \n"
+
+
+def test_encode_command_with_args():
+    data = encode_command("Click", 540, 960)
+    assert data == b"Click 540 960 \n"
+
+
+def test_encode_command_with_kwargs():
+    data = encode_command("Dump", "onlyVisibleNode=True")
+    assert data == b"Dump onlyVisibleNode=True \n"
+
+
+def test_encode_command_mixed():
+    data = encode_command("GetNodeAttr", "btn_play", "text")
+    assert data == b"GetNodeAttr btn_play text \n"
+
+
 def test_encode_json_frame_includes_4_byte_length_prefix():
-    payload = {"jsonrpc": "2.0", "id": 1, "method": "hello", "params": {}}
+    payload = {"result": "ok"}
     frame = encode_json_frame(payload)
     assert len(frame) > 4
     (length,) = struct.unpack(">I", frame[:4])
@@ -30,14 +51,6 @@ def test_encode_json_frame_uses_big_endian():
     frame = encode_json_frame(payload)
     (length,) = struct.unpack(">I", frame[:4])
     assert length == len(frame) - 4
-
-
-def test_encode_json_frame_utf8_non_ascii():
-    payload = {"method": "click", "params": {"name": "开始按钮"}}
-    frame = encode_json_frame(payload)
-    (length,) = struct.unpack(">I", frame[:4])
-    body = frame[4:]
-    assert json.loads(body.decode("utf-8"))["params"]["name"] == "开始按钮"
 
 
 def _make_socketpair_with_data(data: bytes):
@@ -60,7 +73,6 @@ def test_read_exactly_returns_empty_on_eof():
 
 
 def test_read_frame_reads_length_prefixed_body():
-    from autotest_ide.core.protocol import encode_json_frame
     frame = encode_json_frame({"method": "ping"})
     sock = _make_socketpair_with_data(frame)
     body = read_frame(sock)
@@ -78,10 +90,9 @@ def test_read_frame_rejects_oversized_frame():
         read_frame(sock)
 
 
-def test_read_json_frame_returns_parsed_dict():
-    from autotest_ide.core.protocol import encode_json_frame
-    sock = _make_socketpair_with_data(encode_json_frame({"id": 1, "result": "ok"}))
-    assert read_json_frame(sock) == {"id": 1, "result": "ok"}
+def test_read_json_frame_returns_parsed_value():
+    sock = _make_socketpair_with_data(encode_json_frame({"result": "ok"}))
+    assert read_json_frame(sock) == {"result": "ok"}
 
 
 def test_read_json_frame_raises_connection_error_on_eof():

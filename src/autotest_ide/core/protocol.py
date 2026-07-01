@@ -10,9 +10,37 @@ logger = getLogger(__name__)
 HEADER_SIZE = 4
 MAX_FRAME_SIZE = 4 * 1024 * 1024  # 4 MB — screenshots rarely exceed 2 MB
 
+# Real Poco protocol: text commands with space separator and newline terminator.
+SEPARATOR = " "
+TERMINATOR = "\n"
 
-def encode_json_frame(payload: dict) -> bytes:
-    """Encode a dict as a length-prefixed UTF-8 JSON frame."""
+
+def encode_command(*args) -> bytes:
+    """Encode a Poco text command: arg1 SEP arg2 SEP ... argN SEP END."""
+    cmd = ""
+    for arg in args:
+        cmd += str(arg) + SEPARATOR
+    cmd += TERMINATOR
+    return cmd.encode("utf-8")
+
+
+def read_command(sock) -> tuple[str, list[str]]:
+    """Read one newline-terminated Poco command. Returns (method, [args])."""
+    buf = b""
+    while not buf.endswith(b"\n"):
+        chunk = sock.recv(1)
+        if not chunk:
+            raise PocoConnectionError("connection closed")
+        buf += chunk
+    line = buf.decode("utf-8").strip()
+    parts = [p for p in line.split(SEPARATOR) if p]
+    if not parts:
+        raise PocoProtocolError("empty command")
+    return parts[0], parts[1:]
+
+
+def encode_json_frame(payload: Any) -> bytes:
+    """Encode a value as a length-prefixed UTF-8 JSON frame (for server responses)."""
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     return struct.pack(">I", len(body)) + body
 
@@ -46,8 +74,8 @@ def read_frame(sock) -> bytes:
     return read_exactly(sock, length)
 
 
-def read_json_frame(sock) -> dict:
-    """Read one frame and parse as JSON. Raises ConnectionError on EOF, PocoProtocolError on bad JSON."""
+def read_json_frame(sock) -> Any:
+    """Read one frame and parse as JSON. Raises PocoConnectionError on EOF."""
     body = read_frame(sock)
     if not body:
         raise PocoConnectionError("connection closed")
