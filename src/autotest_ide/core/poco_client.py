@@ -1,3 +1,4 @@
+import ipaddress
 import socket
 import threading
 from concurrent.futures import Future
@@ -24,12 +25,24 @@ CLIENT_VERSION = "1.0"
 PROTOCOL_VERSION = "v1"
 
 
+def _is_loopback(host: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(socket.gethostbyname(host))
+        return addr.is_loopback
+    except (ValueError, socket.gaierror):
+        return False
+
+
 class PocoClient:
     """Synchronous client for the Poco JSON-RPC protocol over TCP."""
 
     def __init__(self, host: str = "127.0.0.1", port: int = 13000):
         self._host = host
         self._port = port
+        if not _is_loopback(host):
+            raise PocoConnectionError(
+                f"only loopback addresses are allowed, got {host!r}"
+            )
         self._sock: Optional[socket.socket] = None
         self._seq = 0
         self._seq_lock = threading.Lock()

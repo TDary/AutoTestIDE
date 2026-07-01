@@ -1,4 +1,7 @@
+import re
+import shutil
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Optional
 
 import subprocess
@@ -7,6 +10,23 @@ from autotest_ide.core.errors import ForwarderError
 from autotest_ide.core.log import getLogger
 
 logger = getLogger(__name__)
+
+_SERIAL_RE = re.compile(r"^[a-zA-Z0-9_.:;-]+$")
+
+
+def resolve_adb_path(adb_path: Optional[list] = None) -> list:
+    if adb_path is not None:
+        return adb_path
+    resolved = shutil.which("adb")
+    if resolved:
+        logger.info("Resolved adb to: %s", resolved)
+        return [str(Path(resolved).resolve())]
+    return ["adb"]
+
+
+def validate_serial(serial: str) -> None:
+    if not serial or not _SERIAL_RE.match(serial):
+        raise ForwarderError(f"invalid device serial: {serial!r}")
 
 
 class PortForwarder(ABC):
@@ -48,9 +68,10 @@ class AdbForwarder(PortForwarder):
 
     def __init__(self, device_serial: str, remote_port: int = 13000,
                  adb_path: Optional[list] = None):
+        validate_serial(device_serial)
         self._device_serial = device_serial
         self._remote_port = remote_port
-        self._adb_path = adb_path if adb_path is not None else ["adb"]
+        self._adb_path = resolve_adb_path(adb_path)
         self._local_port: Optional[int] = None
 
     @property

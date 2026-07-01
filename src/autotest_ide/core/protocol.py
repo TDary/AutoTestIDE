@@ -8,7 +8,7 @@ from autotest_ide.core.log import getLogger
 logger = getLogger(__name__)
 
 HEADER_SIZE = 4
-MAX_FRAME_SIZE = 64 * 1024 * 1024  # 64 MB safety cap
+MAX_FRAME_SIZE = 4 * 1024 * 1024  # 4 MB — screenshots rarely exceed 2 MB
 
 
 def encode_json_frame(payload: dict) -> bytes:

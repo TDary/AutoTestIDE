@@ -1,4 +1,5 @@
 import json
+import re
 import time
 from pathlib import Path
 from typing import Optional
@@ -7,6 +8,9 @@ from autotest_ide.core.log import getLogger
 from autotest_ide.core.report_model import ReportStep, ReportSummary
 
 logger = getLogger(__name__)
+
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+_SAFE_FILENAME_RE = re.compile(r"^[a-zA-Z0-9_]+\.(png|jpg|jpeg)$")
 
 
 class Reporter:
@@ -80,7 +84,19 @@ class Reporter:
 
     def _save_screenshot(self, step_index: int, data: bytes) -> str:
         filename = f"step_{step_index}.png"
+        if not data.startswith(_PNG_MAGIC):
+            logger.warning("Screenshot data for step %d is not valid PNG, skipping write", step_index)
+            return ""
         path = self._air_dir / filename
         path.write_bytes(data)
         logger.debug("Screenshot saved: %s", path)
         return filename
+
+
+def validate_step_screenshot(filename: str) -> str:
+    if not filename:
+        return ""
+    if not _SAFE_FILENAME_RE.match(filename):
+        logger.warning("Blocked unsafe screenshot filename: %r", filename)
+        return ""
+    return filename

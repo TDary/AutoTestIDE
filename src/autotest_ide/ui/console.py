@@ -1,3 +1,5 @@
+import html
+
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QTextCursor, QFont
 from PyQt5.QtWidgets import QTextEdit
@@ -15,7 +17,7 @@ class Console(QTextEdit):
         cursor = self.textCursor()
         cursor.movePosition(QTextCursor.End)
         if is_error:
-            cursor.insertHtml(f'<span style="color:red">{text}</span><br>')
+            cursor.insertHtml(f'<span style="color:red">{html.escape(text)}</span><br>')
         else:
             cursor.insertText(text + "\n")
         self.setTextCursor(cursor)

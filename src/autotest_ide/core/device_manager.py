@@ -5,7 +5,7 @@ from typing import Optional
 
 from autotest_ide.core.device import Device
 from autotest_ide.core.errors import DeviceDiscoveryError
-from autotest_ide.core.forwarder import AdbForwarder, LocalForwarder
+from autotest_ide.core.forwarder import AdbForwarder, LocalForwarder, resolve_adb_path
 from autotest_ide.core.log import getLogger
 
 logger = getLogger(__name__)
@@ -15,7 +15,7 @@ class DeviceManager:
     """Manages device discovery and the single active Device."""
 
     def __init__(self, adb_path: Optional[list] = None):
-        self._adb_path = adb_path if adb_path is not None else ["adb"]
+        self._adb_path = resolve_adb_path(adb_path)
         self._devices: list = []
         self._active = None
         self._atexit_registered = False

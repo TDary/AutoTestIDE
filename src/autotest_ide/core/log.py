@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -15,6 +16,21 @@ def _log_dir() -> Path:
     return d
 
 
+def _sanitize(msg: str) -> str:
+    return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", str(msg))
+
+
+class _SanitizingFormatter(logging.Formatter):
+    def format(self, record):
+        record.msg = _sanitize(record.msg)
+        if record.args:
+            if isinstance(record.args, dict):
+                record.args = {k: _sanitize(v) for k, v in record.args.items()}
+            elif isinstance(record.args, tuple):
+                record.args = tuple(_sanitize(a) for a in record.args)
+        return super().format(record)
+
+
 def setup_logging(filename: str = "autotest_ide.log", level: int = logging.INFO) -> None:
     log_file = _log_dir() / filename
     root = logging.getLogger()
@@ -24,7 +40,7 @@ def setup_logging(filename: str = "autotest_ide.log", level: int = logging.INFO)
         handler = RotatingFileHandler(
             str(log_file), maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
         )
-        fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+        fmt = _SanitizingFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
         handler.setFormatter(fmt)
         root.addHandler(handler)
 

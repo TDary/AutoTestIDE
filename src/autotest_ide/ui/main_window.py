@@ -291,9 +291,13 @@ class MainWindow(QMainWindow):
             return None
 
     def _flatten_tree(self, root: dict) -> list:
-        nodes = [root]
-        for child in root.get("children", []):
-            nodes.extend(self._flatten_tree(child))
+        nodes = []
+        stack = [root]
+        while stack:
+            node = stack.pop()
+            nodes.append(node)
+            for child in reversed(node.get("children", [])):
+                stack.append(child)
         return nodes
 
     def _check_unsaved(self) -> bool:
@@ -355,6 +359,13 @@ class MainWindow(QMainWindow):
         device = self._device_mgr.active
         if not device or device.status != "online":
             self.console.append_text("错误: 没有在线设备", is_error=True)
+            return
+        ret = QMessageBox.warning(
+            self, "运行脚本",
+            "脚本将以当前用户权限执行，请仅运行可信来源的 .air 脚本。\n\n是否继续？",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if ret != QMessageBox.Yes:
             return
         air_dir = "test.air"
         logger.info("Running script air_dir=%s device=%s:%s poco_port=%d",

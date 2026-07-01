@@ -28,7 +28,13 @@ def main():
     parser.add_argument("--timeout", type=int, default=600, help="Overall timeout in seconds")
     args = parser.parse_args()
 
-    air_dir = Path(args.air_dir)
+    air_dir = Path(args.air_dir).resolve()
+    if not air_dir.is_dir():
+        logger.error("air_dir is not a directory: %s", air_dir)
+        sys.exit(1)
+    if not str(air_dir).endswith(".air"):
+        logger.error("air_dir must end with .air: %s", air_dir)
+        sys.exit(1)
     script_path = air_dir / "script.py"
     if not script_path.exists():
         logger.error("Script not found: %s", script_path)
