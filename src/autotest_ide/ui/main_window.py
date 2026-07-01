@@ -196,6 +196,7 @@ class MainWindow(QMainWindow):
             from PyQt5.QtWidgets import QMessageBox
             QMessageBox.warning(self, "无法连接", f"设备状态为 {state}，请先在手机上允许USB调试授权。")
             return
+        self._disconnect_device()
         logger.info("Connecting device kind=%s identifier=%s", kind, identifier)
         if kind == "android":
             device = self._device_mgr.connect_android(serial=identifier)
@@ -375,7 +376,7 @@ class MainWindow(QMainWindow):
                      air_dir, device.device_type, device.name, self._device_mgr.active.poco._port)
         self._run_controller.start(
             air_dir, device.device_type, device.name,
-            self._device_mgr.active.poco._port,
+            self._device_mgr.active.poco.port,
         )
 
     def _on_stop_clicked(self):

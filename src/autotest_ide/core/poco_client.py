@@ -55,12 +55,15 @@ class PocoClient:
         self._send_lock = threading.Lock()
         self._pending: dict[int, Future] = {}          # seq -> Future (JSON)
         self._pending_binary: dict[int, Future] = {}    # seq -> Future (binary)
-        self._pending_lock = threading.Lock()
-        self._recv_event = threading.Event()
+        self._pending_cond = threading.Condition()
         self._recv_thread: Optional[threading.Thread] = None
         self._closed = True
         self.server_version: Optional[str] = None
         self.protocol_version: Optional[str] = None
+
+    @property
+    def port(self) -> int:
+        return self._port
 
     def connect(self):
         try:
@@ -93,7 +96,8 @@ class PocoClient:
 
     def close(self):
         self._closed = True
-        self._recv_event.set()
+        with self._pending_cond:
+            self._pending_cond.notify_all()
         if self._sock is not None:
             try:
                 self._sock.close()
@@ -103,14 +107,14 @@ class PocoClient:
         self._drain_pending(PocoConnectionError("client closed"))
 
     def _drain_pending(self, exc: Exception):
-        with self._pending_lock:
+        with self._pending_cond:
             for f in list(self._pending.values()):
                 if not f.done():
-                    f.set_exception(type(exc)(str(exc)))
+                    f.set_exception(exc)
             self._pending.clear()
             for f in list(self._pending_binary.values()):
                 if not f.done():
-                    f.set_exception(type(exc)(str(exc)))
+                    f.set_exception(exc)
             self._pending_binary.clear()
 
     def _next_seq(self) -> int:
@@ -127,17 +131,17 @@ class PocoClient:
         with self._send_lock:
             seq = self._next_seq()
             future: Future = Future()
-            with self._pending_lock:
+            with self._pending_cond:
                 if expect_binary:
                     self._pending_binary[seq] = future
                 else:
                     self._pending[seq] = future
-            self._recv_event.set()
+                self._pending_cond.notify_all()
             payload = {"jsonrpc": "2.0", "id": seq, "method": method, "params": params}
             try:
                 self._sock.sendall(encode_json_frame(payload))
             except OSError as e:
-                with self._pending_lock:
+                with self._pending_cond:
                     self._pending.pop(seq, None)
                     self._pending_binary.pop(seq, None)
                 logger.warning("PocoClient send failed: %s", e)
@@ -145,7 +149,7 @@ class PocoClient:
         try:
             return future.result(timeout=timeout)
         except TimeoutError:
-            with self._pending_lock:
+            with self._pending_cond:
                 self._pending.pop(seq, None)
                 self._pending_binary.pop(seq, None)
             self.close()
@@ -154,9 +158,9 @@ class PocoClient:
 
     def _recv_loop(self):
         while not self._closed:
-            if not self._pending and not self._pending_binary:
-                self._recv_event.wait()
-                self._recv_event.clear()
+            with self._pending_cond:
+                if not self._pending and not self._pending_binary:
+                    self._pending_cond.wait()
                 if self._closed:
                     break
             try:
@@ -173,7 +177,7 @@ class PocoClient:
                     )
                 else:
                     exc = None
-                with self._pending_lock:
+                with self._pending_cond:
                     if seq in self._pending_binary:
                         future = self._pending_binary.pop(seq)
                         if exc:
@@ -242,7 +246,7 @@ class PocoClient:
         """
         if self._closed:
             return False
-        with self._pending_lock:
+        with self._pending_cond:
             has_pending = bool(self._pending or self._pending_binary)
         if has_pending:
             return True

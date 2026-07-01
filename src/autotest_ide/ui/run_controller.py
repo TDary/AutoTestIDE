@@ -42,10 +42,12 @@ class RunController(QObject):
         self._process: Optional[subprocess.Popen] = None
         self._reader_thread: Optional[threading.Thread] = None
         self._air_dir: str = ""
+        self._stopping = False
 
     def start(self, air_dir: str, device_type: str, device_serial: str,
               poco_port: int, timeout: int = 600):
         self._air_dir = air_dir
+        self._stopping = False
         cmd = _build_runtest_cmd(
             air_dir, device_type, device_serial, poco_port, timeout,
         )
@@ -62,6 +64,7 @@ class RunController(QObject):
     def stop(self):
         if self._process is None:
             return
+        self._stopping = True
         logger.info("Stopping subprocess PID=%d", self._process.pid)
         try:
             proc = psutil.Process(self._process.pid)
@@ -74,20 +77,24 @@ class RunController(QObject):
             proc.kill()
         except psutil.NoSuchProcess:
             logger.debug("Process already dead during kill")
-        self._process = None
-        self.run_stopped.emit()
+        if self._reader_thread:
+            self._reader_thread.join(timeout=3000)
 
     def _read_output(self):
-        if self._process is None:
+        process = self._process
+        if process is None:
             return
         try:
-            for line in self._process.stdout:
+            for line in process.stdout:
                 self.output_received.emit(line, False)
         except ValueError:
             logger.debug("Pipe closed during read")
         finally:
-            exit_code = self._process.wait() if self._process else -1
+            exit_code = process.wait()
             report_path = str(Path(self._air_dir) / "report.json") if self._air_dir else ""
             logger.debug("Subprocess exited code=%d", exit_code)
-            self.run_finished.emit(exit_code, report_path)
             self._process = None
+            if self._stopping:
+                self.run_stopped.emit()
+            else:
+                self.run_finished.emit(exit_code, report_path)

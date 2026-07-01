@@ -1,7 +1,7 @@
 import threading
 from typing import Callable, Optional
 
-from autotest_ide.core.errors import DeviceError, ForwarderError, PocoConnectionError
+from autotest_ide.core.errors import DeviceError, ForwarderError, PocoConnectionError, PocoError
 from autotest_ide.core.forwarder import PortForwarder
 from autotest_ide.core.log import getLogger
 from autotest_ide.core.poco_client import PocoClient
@@ -100,13 +100,19 @@ class Device:
 
     def _heartbeat_loop(self) -> None:
         while not self._stop_event.wait(timeout=self._heartbeat_interval):
-            if self._status != "online":
+            with self._lock:
+                status = self._status
+                poco = self._poco
+            if status != "online":
                 return
-            if self._poco is None:
+            if poco is None:
                 return
             try:
-                ok = self._poco.heartbeat()
+                ok = poco.heartbeat()
+            except PocoError:
+                ok = False
             except Exception:
+                logger.warning("Device %s: unexpected heartbeat error", self._name, exc_info=True)
                 ok = False
             with self._lock:
                 if not ok:

@@ -12,7 +12,7 @@ from autotest_ide.core.protocol import (
     read_json_frame,
     read_binary_frame,
 )
-from autotest_ide.core.errors import PocoProtocolError
+from autotest_ide.core.errors import PocoConnectionError, PocoProtocolError
 
 
 def test_encode_json_frame_includes_4_byte_length_prefix():
@@ -86,7 +86,7 @@ def test_read_json_frame_returns_parsed_dict():
 
 def test_read_json_frame_raises_connection_error_on_eof():
     sock = _make_socketpair_with_data(b"")
-    with pytest.raises(ConnectionError):
+    with pytest.raises(PocoConnectionError):
         read_json_frame(sock)
 
 

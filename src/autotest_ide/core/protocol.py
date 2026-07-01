@@ -2,7 +2,7 @@ import json
 import struct
 from typing import Any
 
-from autotest_ide.core.errors import PocoProtocolError
+from autotest_ide.core.errors import PocoConnectionError, PocoProtocolError
 from autotest_ide.core.log import getLogger
 
 logger = getLogger(__name__)
@@ -50,7 +50,7 @@ def read_json_frame(sock) -> dict:
     """Read one frame and parse as JSON. Raises ConnectionError on EOF, PocoProtocolError on bad JSON."""
     body = read_frame(sock)
     if not body:
-        raise ConnectionError("connection closed")
+        raise PocoConnectionError("connection closed")
     try:
         return json.loads(body.decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError) as e:

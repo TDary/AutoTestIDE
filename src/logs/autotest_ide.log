@@ -1,0 +1,4 @@
+2026-07-01 10:02:24,263 INFO autotest_ide.app: AutoTest IDE starting
+2026-07-01 10:02:24,305 INFO autotest_ide.core.forwarder: Resolved adb to: F:\platform-tools\adb.EXE
+2026-07-01 10:13:44,569 INFO autotest_ide.app: AutoTest IDE starting
+2026-07-01 10:13:44,612 INFO autotest_ide.core.forwarder: Resolved adb to: F:\platform-tools\adb.EXE

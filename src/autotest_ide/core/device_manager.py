@@ -100,13 +100,14 @@ class DeviceManager:
         return device
 
     @property
-    def active(self):
+    def active(self) -> Optional[Device]:
         return self._active
 
     def disconnect_active(self) -> None:
         logger.info("Disconnecting active device")
         if self._active is not None:
             self._active.disconnect()
+            self._devices = [d for d in self._devices if d is not self._active]
             self._active = None
 
     def shutdown(self) -> None:

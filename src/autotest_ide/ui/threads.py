@@ -21,6 +21,7 @@ class ScreenshotWorker(QThread):
     def run(self):
         while not self._stop_event.wait(timeout=self._interval):
             if self._device.status != "online":
+                self._stop_event.wait(timeout=1.0)
                 continue
             try:
                 png_bytes = self._device.poco.screenshot()

@@ -22,13 +22,18 @@ def _sanitize(msg: str) -> str:
 
 class _SanitizingFormatter(logging.Formatter):
     def format(self, record):
+        orig_msg, orig_args = record.msg, record.args
         record.msg = _sanitize(record.msg)
         if record.args:
             if isinstance(record.args, dict):
                 record.args = {k: _sanitize(v) for k, v in record.args.items()}
             elif isinstance(record.args, tuple):
                 record.args = tuple(_sanitize(a) for a in record.args)
-        return super().format(record)
+        try:
+            return super().format(record)
+        finally:
+            record.msg = orig_msg
+            record.args = orig_args
 
 
 def setup_logging(filename: str = "autotest_ide.log", level: int = logging.INFO) -> None:

@@ -4,8 +4,10 @@ Loads and executes the user's .air/script.py with an injected namespace
 containing poco, snapshot, assert_exists, log.
 """
 import argparse
+import os
 import signal
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -16,6 +18,11 @@ from autotest_ide.runner.reporter import Reporter
 from autotest_ide.runner.runtime import build_namespace
 
 logger = getLogger(__name__)
+
+
+def _watchdog(timeout: int):
+    time.sleep(timeout)
+    os._exit(2)
 
 
 def main():
@@ -40,9 +47,12 @@ def main():
         logger.error("Script not found: %s", script_path)
         sys.exit(1)
 
-    # Setup timeout alarm (POSIX only; Windows relies on parent process kill)
+    # Setup timeout: POSIX uses SIGALRM, Windows uses watchdog thread
     if hasattr(signal, "SIGALRM"):
         signal.alarm(args.timeout)
+    else:
+        t = threading.Thread(target=_watchdog, args=(args.timeout,), daemon=True)
+        t.start()
 
     poco = PocoClient(host="127.0.0.1", port=args.poco_port)
     try:
