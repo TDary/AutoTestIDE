@@ -96,6 +96,15 @@ class MainWindow(QMainWindow):
         self.device_combo.setMinimumWidth(200)
         toolbar.addWidget(self.device_combo)
 
+        toolbar.addSeparator()
+        toolbar.addWidget(QLabel("SDK:"))
+
+        self.sdk_combo = QComboBox()
+        self.sdk_combo.addItem("Poco (标准)", "poco")
+        self.sdk_combo.addItem("JX4 (AltrunUnityDriver)", "jx4")
+        self.sdk_combo.setMinimumWidth(200)
+        toolbar.addWidget(self.sdk_combo)
+
         self._refresh_action = QAction("刷新设备", self)
         self._refresh_action.triggered.connect(self._refresh_devices)
         toolbar.addAction(self._refresh_action)
@@ -201,11 +210,13 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "无法连接", f"设备状态为 {state}，请先在手机上允许USB调试授权。")
             return
         self._disconnect_device()
-        logger.info("Connecting device kind=%s identifier=%s", kind, identifier)
+        sdk_name = self.sdk_combo.currentData() or "poco"
+        protocol = self._load_protocol(sdk_name)
+        logger.info("Connecting device kind=%s identifier=%s sdk=%s", kind, identifier, sdk_name)
         if kind == "android":
-            device = self._device_mgr.connect_android(serial=identifier)
+            device = self._device_mgr.connect_android(serial=identifier, protocol=protocol)
         else:
-            device = self._device_mgr.connect_local(port=identifier)
+            device = self._device_mgr.connect_local(port=identifier, protocol=protocol)
 
         self._device_bridge = DeviceBridge(device)
         self._device_bridge.status_changed.connect(self._on_device_status_changed)
@@ -228,6 +239,26 @@ class MainWindow(QMainWindow):
         self.property_panel.show_properties({})
         self.tree_panel.load_tree({"name": "", "type": "", "payload": {}, "children": []})
 
+    @staticmethod
+    def _load_protocol(sdk_name: str):
+        from autotest_ide.runner.runtest import PROTOCOL_REGISTRY
+        import importlib
+        if sdk_name in PROTOCOL_REGISTRY:
+            spec = PROTOCOL_REGISTRY[sdk_name]
+            module_path, class_name = spec.rsplit(":", 1)
+            mod = importlib.import_module(module_path)
+            return getattr(mod, class_name)()
+        # fallback: try sdks package
+        try:
+            mod = importlib.import_module(f"autotest_ide.sdks.{sdk_name}")
+            cls = getattr(mod, f"{sdk_name.upper()}Protocol", None)
+            if cls:
+                return cls()
+        except (ImportError, AttributeError):
+            pass
+        from autotest_ide.core.protocol_poco import PocoTextProtocol
+        return PocoTextProtocol()
+
     def _start_screenshot_worker(self, device):
         self._stop_screenshot_worker()
         self._screenshot_worker = ScreenshotWorker(device, fps=5)
@@ -246,7 +277,8 @@ class MainWindow(QMainWindow):
             if not self._screenshot_worker:
                 self._start_screenshot_worker(device)
             if device.poco:
-                self.status_protocol.setText(f"协议: {device.poco.protocol_version or '-'}")
+                sdk = self.sdk_combo.currentData() or "poco"
+                self.status_protocol.setText(f"协议: {device.poco.protocol_version or '-'} ({sdk})")
         elif status == "offline":
             self._stop_screenshot_worker()
         elif status == "disconnected":
@@ -366,11 +398,12 @@ class MainWindow(QMainWindow):
         if ret != QMessageBox.Yes:
             return
         air_dir = "test.air"
-        logger.info("Running script air_dir=%s device=%s:%s poco_port=%d",
-                     air_dir, device.device_type, device.name, self._device_mgr.active.poco._port)
+        sdk = self.sdk_combo.currentData() or "poco"
+        logger.info("Running script air_dir=%s device=%s:%s poco_port=%d sdk=%s",
+                     air_dir, device.device_type, device.name, device.poco.port, sdk)
         self._run_controller.start(
             air_dir, device.device_type, device.name,
-            self._device_mgr.active.poco.port,
+            device.poco.port, sdk=sdk,
         )
 
     def _on_stop_clicked(self):

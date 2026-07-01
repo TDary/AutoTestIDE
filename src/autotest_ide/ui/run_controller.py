@@ -14,7 +14,7 @@ logger = getLogger(__name__)
 
 
 def _build_runtest_cmd(air_dir: str, device_type: str, device_serial: str,
-                       poco_port: int, timeout: int):
+                       poco_port: int, timeout: int, sdk: str = "poco"):
     if getattr(sys, "frozen", False):
         base = Path(sys.executable).parent / "_internal" / "scripts"
         cmd = [sys.executable, str(base / "runtest.py")]
@@ -27,6 +27,7 @@ def _build_runtest_cmd(air_dir: str, device_type: str, device_serial: str,
         "--device-serial", device_serial,
         "--poco-port", str(poco_port),
         "--timeout", str(timeout),
+        "--protocol", sdk,
     ]
     return cmd
 
@@ -45,11 +46,11 @@ class RunController(QObject):
         self._stopping = False
 
     def start(self, air_dir: str, device_type: str, device_serial: str,
-              poco_port: int, timeout: int = 600):
+              poco_port: int, timeout: int = 600, sdk: str = "poco"):
         self._air_dir = air_dir
         self._stopping = False
         cmd = _build_runtest_cmd(
-            air_dir, device_type, device_serial, poco_port, timeout,
+            air_dir, device_type, device_serial, poco_port, timeout, sdk,
         )
         logger.info("Spawning subprocess: %s", " ".join(cmd))
         self._process = subprocess.Popen(
