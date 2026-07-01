@@ -4,7 +4,7 @@ import sys
 import pytest
 
 from autotest_ide.core.errors import ForwarderError
-from autotest_ide.core.forwarder import AdbForwarder, LocalForwarder, PortForwarder
+from autotest_ide.core.forwarder import AdbForwarder, DirectForwarder, LocalForwarder, PortForwarder
 
 FAKE_ADB = [sys.executable, os.path.join(os.path.dirname(__file__), "fake_adb.py")]
 
@@ -79,4 +79,26 @@ def test_adb_forwarder_stop_is_idempotent():
     fwd = AdbForwarder(device_serial="emulator-5554", adb_path=FAKE_ADB)
     fwd.start()
     fwd.stop()
+    fwd.stop()
+
+
+# --- DirectForwarder ---
+
+
+def test_direct_forwarder_is_port_forwarder():
+    fwd = DirectForwarder("192.168.1.100", 13000)
+    assert isinstance(fwd, PortForwarder)
+
+
+def test_direct_forwarder_host_and_port():
+    fwd = DirectForwarder("192.168.1.100", 13000)
+    assert fwd.host == "192.168.1.100"
+    assert fwd.local_port == 13000
+
+
+def test_direct_forwarder_start_stop_noop():
+    fwd = DirectForwarder("10.0.0.1", 5501)
+    fwd.start()
+    assert fwd.host == "10.0.0.1"
+    assert fwd.local_port == 5501
     fwd.stop()

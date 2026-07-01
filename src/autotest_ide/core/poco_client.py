@@ -1,4 +1,3 @@
-import ipaddress
 import socket
 import threading
 from collections import Counter, deque
@@ -20,14 +19,6 @@ logger = getLogger(__name__)
 DEFAULT_TIMEOUT = 10.0
 
 
-def _is_loopback(host: str) -> bool:
-    try:
-        addr = ipaddress.ip_address(socket.gethostbyname(host))
-        return addr.is_loopback
-    except (ValueError, socket.gaierror):
-        return False
-
-
 class PocoClient:
     """Synchronous TCP client with pluggable protocol adapters.
 
@@ -45,10 +36,6 @@ class PocoClient:
     ):
         self._host = host
         self._port = port
-        if not _is_loopback(host):
-            raise PocoConnectionError(
-                f"only loopback addresses are allowed, got {host!r}"
-            )
         self._protocol = protocol or PocoTextProtocol()
         self._sock: Optional[socket.socket] = None
         self._send_lock = threading.Lock()
@@ -69,7 +56,11 @@ class PocoClient:
 
     def connect(self):
         try:
-            self._sock = socket.create_connection((self._host, self._port), timeout=5)
+            sock, actual_port = self._protocol.create_connection(
+                self._host, self._port,
+            )
+            self._sock = sock
+            self._port = actual_port
             self._sock.settimeout(None)
             self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
             if hasattr(socket, "SIO_KEEPALIVE_VALS"):

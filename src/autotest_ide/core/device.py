@@ -22,7 +22,6 @@ class Device:
         self._heartbeat_interval = heartbeat_interval
         self._protocol = protocol
         self._poco: Optional[PocoClient] = None
-        self._poco: Optional[PocoClient] = None
         self._status = "disconnected"
         self._heartbeat_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -79,7 +78,8 @@ class Device:
             logger.warning("Device %s: forwarder start failed", self._name, exc_info=True)
             self._set_status("offline")
             return
-        poco = PocoClient(host="127.0.0.1", port=self._forwarder.local_port, protocol=self._protocol)
+        host = getattr(self._forwarder, "host", "127.0.0.1")
+        poco = PocoClient(host=host, port=self._forwarder.local_port, protocol=self._protocol)
         try:
             poco.connect()
         except PocoConnectionError:

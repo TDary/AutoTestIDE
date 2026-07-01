@@ -5,7 +5,7 @@ from typing import Optional
 
 from autotest_ide.core.device import Device
 from autotest_ide.core.errors import DeviceDiscoveryError
-from autotest_ide.core.forwarder import AdbForwarder, LocalForwarder, resolve_adb_path
+from autotest_ide.core.forwarder import AdbForwarder, DirectForwarder, LocalForwarder, resolve_adb_path
 from autotest_ide.core.log import getLogger
 from autotest_ide.core.protocol_base import PocoProtocol
 
@@ -89,9 +89,16 @@ class DeviceManager:
 
     def connect_android(self, serial: str, remote_port: int = 13000,
                         name: Optional[str] = None,
-                        protocol: Optional[PocoProtocol] = None) -> Device:
+                        protocol: Optional[PocoProtocol] = None,
+                        remote_ports: Optional[list[int]] = None) -> Device:
         logger.info("Connecting android device serial=%s remote_port=%d", serial, remote_port)
+        # JX4 SDK: scan ports 13000-13004
+        if remote_ports is None and protocol is not None:
+            from autotest_ide.sdks.jx4.protocol import JX4Protocol
+            if isinstance(protocol, JX4Protocol):
+                remote_ports = list(range(13000, 13005))
         fwd = AdbForwarder(device_serial=serial, remote_port=remote_port,
+                           remote_ports=remote_ports,
                            adb_path=self._adb_path)
         device = Device(name=name or serial, device_type="android", forwarder=fwd,
                         protocol=protocol)
@@ -106,6 +113,19 @@ class DeviceManager:
         logger.info("Connecting local device port=%d", port)
         fwd = LocalForwarder(local_port=port)
         device = Device(name=name or f"localhost:{port}", device_type="windows",
+                        forwarder=fwd, protocol=protocol)
+        device.connect()
+        self._active = device
+        self._devices.append(device)
+        self._register_atexit()
+        return device
+
+    def connect_ip(self, host: str, port: int = 13000,
+                   name: Optional[str] = None,
+                   protocol: Optional[PocoProtocol] = None) -> Device:
+        logger.info("Connecting IP device host=%s port=%d", host, port)
+        fwd = DirectForwarder(host=host, port=port)
+        device = Device(name=name or f"{host}:{port}", device_type="remote",
                         forwarder=fwd, protocol=protocol)
         device.connect()
         self._active = device

@@ -6,7 +6,8 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout,
     QSplitter, QTabWidget, QLabel, QComboBox,
     QStatusBar, QToolBar, QAction,
-    QFileDialog, QMessageBox,
+    QFileDialog, QMessageBox, QLineEdit, QDialog, QDialogButtonBox, QFormLayout,
+    QInputDialog,
 )
 
 from autotest_ide.core.log import getLogger
@@ -199,12 +200,18 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.warning("Failed to refresh local devices", exc_info=True)
             self.console.append_text(f"刷新本地设备失败: {e}", is_error=True)
+        # IP direct-connect entries
+        self.device_combo.insertSeparator(self.device_combo.count())
+        self.device_combo.addItem("IP直连 (如 192.168.1.100:13000)", ("ip", None, "device"))
 
     def _connect_selected_device(self):
         data = self.device_combo.currentData()
         if not data:
             return
         kind, identifier, state = data
+        if kind == "ip":
+            self._connect_ip_device()
+            return
         if state != "device":
             from PyQt5.QtWidgets import QMessageBox
             QMessageBox.warning(self, "无法连接", f"设备状态为 {state}，请先在手机上允许USB调试授权。")
@@ -238,6 +245,36 @@ class MainWindow(QMainWindow):
         self.device_panel.clear_highlight()
         self.property_panel.show_properties({})
         self.tree_panel.load_tree({"name": "", "type": "", "payload": {}, "children": []})
+
+    def _connect_ip_device(self):
+        text, ok = QInputDialog.getText(
+            self, "IP 直连", "请输入设备 IP:端口\n(如 192.168.1.100:13000)",
+            text="192.168.1.100:13000",
+        )
+        if not ok or not text.strip():
+            return
+        text = text.strip()
+        try:
+            host, port_str = text.rsplit(":", 1)
+            port = int(port_str)
+        except ValueError:
+            QMessageBox.warning(self, "格式错误", "请输入 IP:端口 格式，如 192.168.1.100:13000")
+            return
+        self._disconnect_device()
+        sdk_name = self.sdk_combo.currentData() or "poco"
+        protocol = self._load_protocol(sdk_name)
+        logger.info("Connecting IP device host=%s port=%d sdk=%s", host, port, sdk_name)
+        try:
+            device = self._device_mgr.connect_ip(host=host, port=port, protocol=protocol)
+        except Exception as e:
+            logger.warning("IP connection failed: %s", e, exc_info=True)
+            QMessageBox.warning(self, "连接失败", f"无法连接 {host}:{port}\n{e}")
+            return
+        if device.status == "online":
+            self._start_screenshot_worker(device)
+            self._cached_root = device.poco.get_root()
+            self._cached_flat = device.poco._flatten_tree(self._cached_root)
+            self.tree_panel.load_tree(self._cached_root)
 
     @staticmethod
     def _load_protocol(sdk_name: str):

@@ -99,6 +99,15 @@ class JX4Protocol(PocoProtocol):
 
     # ── PocoProtocol interface ──────────────────────────────────
 
+    def create_connection(
+        self,
+        host: str,
+        port: int,
+        timeout: float = 60.0,
+    ) -> tuple[socket.socket, int]:
+        """JX4: try port … port+4, return first success."""
+        return self.connect_with_port_scan(host, port, timeout)
+
     def send_request(
         self,
         sock: socket.socket,

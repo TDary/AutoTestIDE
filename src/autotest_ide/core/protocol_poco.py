@@ -37,6 +37,15 @@ class PocoTextProtocol(PocoProtocol):
         "screenshot": "GetScreen",
     }
 
+    def create_connection(
+        self,
+        host: str,
+        port: int,
+        timeout: float = 5.0,
+    ) -> tuple[socket.socket, int]:
+        sock = socket.create_connection((host, port), timeout=timeout)
+        return sock, port
+
     def send_request(
         self,
         sock: socket.socket,

@@ -70,3 +70,19 @@ class PocoProtocol(ABC):
 
         Returns the server version string, or ``None`` if unavailable.
         """
+
+    def create_connection(
+        self,
+        host: str,
+        port: int,
+        timeout: float = 5.0,
+    ) -> tuple[socket.socket, int]:
+        """Create a TCP connection to the agent.
+
+        Default: single port, ``socket.create_connection``.
+        Protocols that need port-scanning (e.g. JX4) override this.
+
+        Returns ``(connected_socket, actual_port)``.
+        """
+        sock = socket.create_connection((host, port), timeout=timeout)
+        return sock, port

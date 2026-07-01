@@ -18,6 +18,8 @@ a = Analysis(
         (str(ROOT / "src" / "autotest_ide" / "report" / "report.js"), "autotest_ide/report"),
         # Runner script — bundled as a standalone script for subprocess spawn
         (str(ROOT / "src" / "autotest_ide" / "runner" / "runtest.py"), "scripts"),
+        # SDK adapters — need __init__.py files for package discovery
+        (str(ROOT / "src" / "autotest_ide" / "sdks"), "autotest_ide/sdks"),
     ],
     hiddenimports=[
         "autotest_ide",
@@ -25,6 +27,8 @@ a = Analysis(
         "autotest_ide.core.log",
         "autotest_ide.core.errors",
         "autotest_ide.core.protocol",
+        "autotest_ide.core.protocol_base",
+        "autotest_ide.core.protocol_poco",
         "autotest_ide.core.poco_client",
         "autotest_ide.core.forwarder",
         "autotest_ide.core.device",
@@ -44,6 +48,10 @@ a = Analysis(
         "autotest_ide.runner.recorder",
         "autotest_ide.runner.runtime",
         "autotest_ide.report",
+        "autotest_ide.sdks",
+        "autotest_ide.sdks.poco",
+        "autotest_ide.sdks.jx4",
+        "autotest_ide.sdks.jx4.protocol",
         "PyQt5.QtWebEngineWidgets",
         "psutil",
     ],
