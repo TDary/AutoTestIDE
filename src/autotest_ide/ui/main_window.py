@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout,
@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import (
 from autotest_ide.core.log import getLogger
 from autotest_ide.ui.device_panel import DevicePanel
 from autotest_ide.ui.editor import Editor
+from autotest_ide.ui.icons import make_icon
 from autotest_ide.ui.tree_panel import TreePanel
 from autotest_ide.ui.property_panel import PropertyPanel
 from autotest_ide.ui.console import Console
@@ -93,41 +94,68 @@ class MainWindow(QMainWindow):
     def _init_toolbar(self):
         toolbar = QToolBar("主工具栏")
         toolbar.setMovable(False)
+        toolbar.setIconSize(QSize(16, 16))
         self.addToolBar(toolbar)
+
+        # App branding on the left
+        title = QLabel("  AutoTest IDE")
+        title.setObjectName("toolbar_title")
+        toolbar.addWidget(title)
+        toolbar.addSeparator()
+
+        # Device section
+        section_dev = QLabel("设备")
+        section_dev.setObjectName("toolbar_section")
+        toolbar.addWidget(section_dev)
 
         self.device_combo = QComboBox()
         self.device_combo.setMinimumWidth(220)
         toolbar.addWidget(self.device_combo)
 
-        toolbar.addSeparator()
-        toolbar.addWidget(QLabel("SDK:"))
-
+        toolbar.addWidget(QLabel("SDK"))
         self.sdk_combo = QComboBox()
         self.sdk_combo.addItem("Poco (标准)", "poco")
         self.sdk_combo.addItem("JX4 (AltrunUnityDriver)", "jx4")
-        self.sdk_combo.setMinimumWidth(220)
+        self.sdk_combo.setMinimumWidth(200)
         toolbar.addWidget(self.sdk_combo)
 
-        self._refresh_action = QAction("⟳ 刷新设备", self)
+        self._refresh_action = QAction(make_icon("refresh", "#89b4fa"), "刷新", self)
         self._refresh_action.triggered.connect(self._refresh_devices)
         toolbar.addAction(self._refresh_action)
-
-        self._connect_action = QAction("⚡ 连接", self)
-        self._connect_action.triggered.connect(self._connect_selected_device)
-        toolbar.addAction(self._connect_action)
-
-        self._disconnect_action = QAction("✖ 断开", self)
-        self._disconnect_action.triggered.connect(self._disconnect_device)
-        toolbar.addAction(self._disconnect_action)
+        toolbar.widgetForAction(self._refresh_action).setObjectName("btn_refresh")
 
         toolbar.addSeparator()
 
-        self.run_action = QAction("▶ 运行", self)
-        toolbar.addAction(self.run_action)
+        # Connection section
+        section_conn = QLabel("连接")
+        section_conn.setObjectName("toolbar_section")
+        toolbar.addWidget(section_conn)
 
-        self.stop_action = QAction("■ 停止", self)
+        self._connect_action = QAction(make_icon("connect", "#a6e3a1"), "连接", self)
+        self._connect_action.triggered.connect(self._connect_selected_device)
+        toolbar.addAction(self._connect_action)
+        toolbar.widgetForAction(self._connect_action).setObjectName("btn_connect")
+
+        self._disconnect_action = QAction(make_icon("disconnect", "#f38ba8"), "断开", self)
+        self._disconnect_action.triggered.connect(self._disconnect_device)
+        toolbar.addAction(self._disconnect_action)
+        toolbar.widgetForAction(self._disconnect_action).setObjectName("btn_disconnect")
+
+        toolbar.addSeparator()
+
+        # Run section
+        section_run = QLabel("脚本")
+        section_run.setObjectName("toolbar_section")
+        toolbar.addWidget(section_run)
+
+        self.run_action = QAction(make_icon("run", "#a6e3a1"), "运行", self)
+        toolbar.addAction(self.run_action)
+        toolbar.widgetForAction(self.run_action).setObjectName("btn_run")
+
+        self.stop_action = QAction(make_icon("stop", "#f38ba8"), "停止", self)
         self.stop_action.setEnabled(False)
         toolbar.addAction(self.stop_action)
+        toolbar.widgetForAction(self.stop_action).setObjectName("btn_stop")
 
     def _init_central(self):
         central = QWidget()
