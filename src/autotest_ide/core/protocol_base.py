@@ -104,3 +104,12 @@ class PocoProtocol(ABC):
         conversion).
         """
         return result
+
+    def capture_screenshot(self) -> bytes | None:
+        """Capture a screenshot without going through the socket protocol.
+
+        Returns PNG bytes, or ``None`` to fall back to ``_request_binary``.
+        Default: ``None`` (use the socket).  PC-native protocols override
+        this to grab the screen directly.
+        """
+        return None

@@ -38,7 +38,7 @@ def test_method_map():
     p = JX4Protocol()
     assert p.resolve_method("dump_hierarchy") == "getHierarchy"
     assert p.resolve_method("click") == "tap"
-    assert p.resolve_method("screenshot") == "getScreen"
+    assert p.resolve_method("get_screen_size") == "getScreen"
     assert p.resolve_method("get_server_version") == "getServerVersion"
     # Unknown passes through
     assert p.resolve_method("customThing") == "customThing"
@@ -189,3 +189,11 @@ def test_convert_jx4_node_text_in_payload():
     }
     result = _convert_jx4_node(raw)
     assert result["payload"]["text"] == "Hello"
+
+
+def test_capture_screenshot_returns_png():
+    p = JX4Protocol()
+    data = p.capture_screenshot()
+    assert data is not None
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+    assert len(data) > 100

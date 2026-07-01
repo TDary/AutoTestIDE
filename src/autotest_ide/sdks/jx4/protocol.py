@@ -121,9 +121,8 @@ class JX4Protocol(PocoProtocol):
         "click": "tap",
         "set_text": "setText",
         "get_server_version": "getServerVersion",
-        # getScreen returns screen size JSON, not pixel data.
-        # JX4 screenshots are async via ProfilingMemory + local file read.
-        "screenshot": "getScreen",
+        # getScreen returns screen size JSON (width/height).
+        "get_screen_size": "getScreen",
     }
 
     # ── PocoProtocol interface ──────────────────────────────────
@@ -283,6 +282,22 @@ class JX4Protocol(PocoProtocol):
         if method == "dump_hierarchy" and isinstance(result, dict):
             return _convert_jx4_node(result)
         return result
+
+    # ── PC-native screenshot ──────────────────────────────────────
+
+    def capture_screenshot(self) -> bytes | None:
+        """Capture the primary screen using Pillow (PC only)."""
+        try:
+            from PIL import ImageGrab
+            from io import BytesIO
+
+            img = ImageGrab.grab()
+            buf = BytesIO()
+            img.save(buf, format="PNG")
+            return buf.getvalue()
+        except Exception:
+            logger.debug("PIL ImageGrab failed", exc_info=True)
+            return None
 
 
 # ── JX4 → Poco hierarchy converter ─────────────────────────────────

@@ -201,6 +201,9 @@ class PocoClient:
         return self._request_json("inspect_by_point", x, y)
 
     def screenshot(self) -> bytes:
+        local = self._protocol.capture_screenshot()
+        if local is not None:
+            return local
         return self._request_binary("screenshot")
 
     def heartbeat(self) -> bool:
