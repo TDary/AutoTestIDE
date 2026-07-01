@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import (
     QStatusBar, QToolBar, QAction,
 )
 
+from autotest_ide.core.log import getLogger
 from autotest_ide.ui.device_panel import DevicePanel
 from autotest_ide.ui.editor import Editor
 from autotest_ide.ui.tree_panel import TreePanel
@@ -19,6 +20,8 @@ from autotest_ide.ui.report_view import ReportView
 from autotest_ide.core.device_manager import DeviceManager
 from autotest_ide.core.locator import generate_locator
 from autotest_ide.report import render_report
+
+logger = getLogger(__name__)
 
 
 class MainWindow(QMainWindow):
@@ -136,23 +139,34 @@ class MainWindow(QMainWindow):
         try:
             android = self._device_mgr.list_android_devices()
             for d in android:
+                state = d.get("state", "device")
                 label = f"{d['serial']} ({d.get('model', 'unknown')})"
-                self.device_combo.addItem(label, ("android", d["serial"]))
+                if state != "device":
+                    label += f" [{state}"
+                    if state == "unauthorized":
+                        label += " - 请在手机上允许USB调试"
+                    label += "]"
+                self.device_combo.addItem(label, ("android", d["serial"], state))
         except Exception:
-            pass
+            logger.warning("Failed to refresh android devices", exc_info=True)
         try:
             local = self._device_mgr.list_local_devices()
             for d in local:
                 label = f"localhost:{d['port']}"
-                self.device_combo.addItem(label, ("local", d["port"]))
+                self.device_combo.addItem(label, ("local", d["port"], "device"))
         except Exception:
-            pass
+            logger.warning("Failed to refresh local devices", exc_info=True)
 
     def _connect_selected_device(self):
         data = self.device_combo.currentData()
         if not data:
             return
-        kind, identifier = data
+        kind, identifier, state = data
+        if state != "device":
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "无法连接", f"设备状态为 {state}，请先在手机上允许USB调试授权。")
+            return
+        logger.info("Connecting device kind=%s identifier=%s", kind, identifier)
         if kind == "android":
             device = self._device_mgr.connect_android(serial=identifier)
         else:
@@ -166,6 +180,7 @@ class MainWindow(QMainWindow):
             self.tree_panel.load_tree(device.poco.get_root())
 
     def _disconnect_device(self):
+        logger.info("Disconnecting device")
         self._stop_screenshot_worker()
         self._device_mgr.disconnect_active()
         self.status_device.setText("设备: 未连接")
@@ -205,6 +220,7 @@ class MainWindow(QMainWindow):
         self.status_coords.setText(f"坐标: ({x}, {y})")
         if self._poco_worker and self._poco_worker.isRunning():
             return
+        logger.debug("Inspect requested at (%d, %d)", x, y)
         self._poco_worker = PocoWorker(device)
         self._poco_worker.inspect_result.connect(self._on_inspect_result)
         self._poco_worker.inspect_failed.connect(self._on_inspect_failed)
@@ -220,7 +236,7 @@ class MainWindow(QMainWindow):
             root = device.poco.get_root()
             self.tree_panel.load_tree(root)
         except Exception:
-            pass
+            logger.debug("Failed to reload tree after inspect", exc_info=True)
         if node_id:
             self.tree_panel.highlight_node(node_id)
         node = self._find_node_in_tree(device, node_id) if device and node_id else None
@@ -235,6 +251,7 @@ class MainWindow(QMainWindow):
             self.property_panel.show_properties({})
 
     def _on_inspect_failed(self, error: str):
+        logger.warning("Inspect failed: %s", error)
         self.console.append_text(f"检选点失败: {error}", is_error=True)
 
     def _find_node_in_tree(self, device, node_id: str) -> dict:
@@ -242,6 +259,7 @@ class MainWindow(QMainWindow):
             attrs = device.poco.get_attributes(node_id)
             return {"node_id": node_id, "payload": attrs}
         except Exception:
+            logger.debug("Failed to find node %s in tree", node_id, exc_info=True)
             return None
 
     def _flatten_tree(self, root: dict) -> list:
@@ -256,12 +274,15 @@ class MainWindow(QMainWindow):
             self.console.append_text("错误: 没有在线设备", is_error=True)
             return
         air_dir = "test.air"
+        logger.info("Running script air_dir=%s device=%s:%s poco_port=%d",
+                     air_dir, device.device_type, device.name, self._device_mgr.active.poco._port)
         self._run_controller.start(
             air_dir, device.device_type, device.name,
             self._device_mgr.active.poco._port,
         )
 
     def _on_stop_clicked(self):
+        logger.info("Stopping script")
         self._run_controller.stop()
 
     def _on_run_started(self):
@@ -273,6 +294,7 @@ class MainWindow(QMainWindow):
         self.run_action.setEnabled(True)
         self.stop_action.setEnabled(False)
         self.device_panel.setEnabled(True)
+        logger.info("Script finished exit_code=%d report_path=%s", exit_code, report_path)
         self.console.append_text(f"脚本结束 (exit code: {exit_code})")
         if report_path and Path(report_path).exists():
             html_path = str(Path(report_path).parent / "report.html")
@@ -283,6 +305,7 @@ class MainWindow(QMainWindow):
                 self._report_view.show_report(html_path)
                 self._report_view.show()
             except Exception as e:
+                logger.warning("Report rendering failed: %s", e, exc_info=True)
                 self.console.append_text(f"报告渲染失败: {e}", is_error=True)
 
     def _on_run_stopped(self):

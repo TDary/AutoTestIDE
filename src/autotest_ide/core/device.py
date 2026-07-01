@@ -3,7 +3,10 @@ from typing import Callable, Optional
 
 from autotest_ide.core.errors import DeviceError, ForwarderError, PocoConnectionError
 from autotest_ide.core.forwarder import PortForwarder
+from autotest_ide.core.log import getLogger
 from autotest_ide.core.poco_client import PocoClient
+
+logger = getLogger(__name__)
 
 
 class Device:
@@ -46,11 +49,13 @@ class Device:
 
     def _set_status(self, status: str) -> None:
         with self._lock:
+            old = self._status
             self._status = status
+        logger.info("Device %s: %s -> %s", self._name, old, status)
         try:
             self._on_status_change(status)
         except Exception:
-            pass
+            logger.debug("status change callback failed", exc_info=True)
 
     def connect(self) -> None:
         if self._status not in ("disconnected", "offline"):
@@ -67,16 +72,18 @@ class Device:
         try:
             self._forwarder.start()
         except ForwarderError:
+            logger.warning("Device %s: forwarder start failed", self._name, exc_info=True)
             self._set_status("offline")
             return
         poco = PocoClient(host="127.0.0.1", port=self._forwarder.local_port)
         try:
             poco.connect()
         except PocoConnectionError:
+            logger.warning("Device %s: poco connect failed on port %d", self._name, self._forwarder.local_port, exc_info=True)
             try:
                 self._forwarder.stop()
             except Exception:
-                pass
+                logger.debug("Device %s: forwarder stop after connect failure", self._name, exc_info=True)
             self._set_status("offline")
             return
         self._poco = poco
@@ -105,10 +112,13 @@ class Device:
                 if not ok:
                     self._heartbeat_failures += 1
                     should_flip = self._heartbeat_failures >= 3
+                    if self._heartbeat_failures < 3:
+                        logger.debug("Device %s: heartbeat fail (%d/3)", self._name, self._heartbeat_failures)
                 else:
                     self._heartbeat_failures = 0
                     should_flip = False
             if should_flip:
+                logger.warning("Device %s: %d consecutive heartbeat failures, going offline", self._name, self._heartbeat_failures)
                 self._set_status("offline")
                 return
 
@@ -120,6 +130,7 @@ class Device:
         except Exception:
             ok = False
         if not ok:
+            logger.warning("Device %s: health check failed, going offline", self._name)
             with self._lock:
                 self._heartbeat_failures = 3
             self._set_status("offline")
@@ -134,10 +145,10 @@ class Device:
             try:
                 self._poco.close()
             except Exception:
-                pass
+                logger.debug("Device %s: poco close failed during disconnect", self._name, exc_info=True)
             self._poco = None
         try:
             self._forwarder.stop()
         except Exception:
-            pass
+            logger.debug("Device %s: forwarder stop failed during disconnect", self._name, exc_info=True)
         self._set_status("disconnected")

@@ -10,11 +10,14 @@ from autotest_ide.core.errors import (
     PocoRemoteError,
     PocoTimeoutError,
 )
+from autotest_ide.core.log import getLogger
 from autotest_ide.core.protocol import (
     encode_json_frame,
     read_binary_frame,
     read_json_frame,
 )
+
+logger = getLogger(__name__)
 
 DEFAULT_TIMEOUT = 5.0
 CLIENT_VERSION = "1.0"
@@ -24,7 +27,7 @@ PROTOCOL_VERSION = "v1"
 class PocoClient:
     """Synchronous client for the Poco JSON-RPC protocol over TCP."""
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 5001):
+    def __init__(self, host: str = "127.0.0.1", port: int = 13000):
         self._host = host
         self._port = port
         self._sock: Optional[socket.socket] = None
@@ -43,11 +46,14 @@ class PocoClient:
             self._sock = socket.create_connection((self._host, self._port), timeout=5)
             self._sock.settimeout(None)
         except OSError as e:
+            logger.warning("PocoClient connect failed %s:%d: %s", self._host, self._port, e)
             raise PocoConnectionError(f"connect failed: {e}")
         self._closed = False
         self._recv_thread = threading.Thread(target=self._recv_loop, daemon=True)
         self._recv_thread.start()
         self._handshake()
+        logger.info("PocoClient connected %s:%d server=%s protocol=%s",
+                     self._host, self._port, self.server_version, self.protocol_version)
 
     def _handshake(self):
         result = self._request_json("hello", {
@@ -63,7 +69,7 @@ class PocoClient:
 
     def close(self):
         self._closed = True
-        self._request_event.set()  # wake the recv loop if it is waiting
+        self._request_event.set()
         if self._sock is not None:
             try:
                 self._sock.close()
@@ -93,6 +99,7 @@ class PocoClient:
             except OSError as e:
                 self._current = None
                 self._request_event.clear()
+                logger.warning("PocoClient send failed: %s", e)
                 raise PocoConnectionError(f"send failed: {e}")
             try:
                 return future.result(timeout=timeout)
@@ -100,6 +107,7 @@ class PocoClient:
                 self._current = None
                 self._request_event.clear()
                 self.close()
+                logger.warning("PocoClient %s timed out after %ss", method, timeout)
                 raise PocoTimeoutError(f"{method} timed out after {timeout}s")
 
     def _recv_loop(self):
@@ -128,8 +136,10 @@ class PocoClient:
                     else:
                         future.set_result(msg.get("result", {}))
             except (ConnectionError, OSError) as e:
+                logger.debug("PocoClient recv connection error: %s", e)
                 future.set_exception(PocoConnectionError(str(e)))
             except Exception as e:
+                logger.warning("PocoClient recv unexpected error: %s", e, exc_info=True)
                 future.set_exception(e)
             finally:
                 self._current = None
@@ -175,6 +185,7 @@ class PocoClient:
             self._request_json("get_screen_size", {}, timeout=2.0)
             return True
         except PocoError:
+            logger.debug("PocoClient heartbeat failed")
             return False
 
     def click(self, x: int, y: int) -> dict:

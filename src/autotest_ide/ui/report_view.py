@@ -4,6 +4,10 @@ from pathlib import Path
 from PyQt5.QtCore import QUrl
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
+from autotest_ide.core.log import getLogger
+
+logger = getLogger(__name__)
+
 
 class ReportView(QWidget):
     """Displays HTML test report. Tries QWebEngineView, falls back to browser."""
@@ -20,7 +24,7 @@ class ReportView(QWidget):
             self._layout.addWidget(self._web_view)
             self._use_webengine = True
         except ImportError:
-            pass
+            logger.info("QtWebEngine not available, will use browser fallback")
 
     def show_report(self, html_path: str):
         path = Path(html_path)

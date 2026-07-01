@@ -3,7 +3,10 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from autotest_ide.core.log import getLogger
 from autotest_ide.core.report_model import ReportStep, ReportSummary
+
+logger = getLogger(__name__)
 
 
 class Reporter:
@@ -73,9 +76,11 @@ class Reporter:
         report_path.write_text(
             json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
         )
+        logger.info("Report written: %s", report_path)
 
     def _save_screenshot(self, step_index: int, data: bytes) -> str:
         filename = f"step_{step_index}.png"
         path = self._air_dir / filename
         path.write_bytes(data)
+        logger.debug("Screenshot saved: %s", path)
         return filename

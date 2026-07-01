@@ -1,5 +1,8 @@
+from autotest_ide.core.log import getLogger
 from autotest_ide.runner.recorder import RecordingPocoClient
 from autotest_ide.runner.reporter import Reporter
+
+logger = getLogger(__name__)
 
 
 def build_namespace(poco: RecordingPocoClient, reporter: Reporter) -> dict:
@@ -15,6 +18,7 @@ def build_namespace(poco: RecordingPocoClient, reporter: Reporter) -> dict:
             reporter.step_pass(screenshot=poco.screenshot())
         except Exception as e:
             reporter.step_fail(error=str(e), screenshot=poco.screenshot())
+            logger.warning("assert_exists failed: %s", e)
             raise AssertionError(msg or str(e))
 
     def log(msg: str) -> None:

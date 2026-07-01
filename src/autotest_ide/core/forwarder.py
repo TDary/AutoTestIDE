@@ -4,6 +4,9 @@ from typing import Optional
 import subprocess
 
 from autotest_ide.core.errors import ForwarderError
+from autotest_ide.core.log import getLogger
+
+logger = getLogger(__name__)
 
 
 class PortForwarder(ABC):
@@ -26,7 +29,7 @@ class PortForwarder(ABC):
 class LocalForwarder(PortForwarder):
     """No-op forwarder for PC-direct connections (game process on 127.0.0.1)."""
 
-    def __init__(self, local_port: int = 5001):
+    def __init__(self, local_port: int = 13000):
         self._local_port = local_port
 
     @property
@@ -43,7 +46,7 @@ class LocalForwarder(PortForwarder):
 class AdbForwarder(PortForwarder):
     """Android USB forwarder. Uses `adb forward tcp:0` for dynamic local port."""
 
-    def __init__(self, device_serial: str, remote_port: int = 5001,
+    def __init__(self, device_serial: str, remote_port: int = 13000,
                  adb_path: Optional[list] = None):
         self._device_serial = device_serial
         self._remote_port = remote_port
@@ -61,6 +64,7 @@ class AdbForwarder(PortForwarder):
             "-s", self._device_serial,
             "forward", "tcp:0", f"tcp:{self._remote_port}",
         ]
+        logger.info("AdbForwarder start: %s", " ".join(cmd))
         try:
             result = subprocess.run(
                 cmd, capture_output=True, timeout=5, text=True,
@@ -77,6 +81,7 @@ class AdbForwarder(PortForwarder):
                 f"adb forward returned non-numeric port: {stdout!r}"
             )
         self._local_port = int(stdout)
+        logger.info("AdbForwarder started: local_port=%d", self._local_port)
 
     def stop(self) -> None:
         if self._local_port is None:
@@ -85,8 +90,9 @@ class AdbForwarder(PortForwarder):
             "-s", self._device_serial,
             "forward", "--remove", f"tcp:{self._local_port}",
         ]
+        logger.debug("AdbForwarder stop: %s", " ".join(cmd))
         try:
             subprocess.run(cmd, capture_output=True, timeout=5, text=True)
         except (OSError, subprocess.TimeoutExpired):
-            pass  # best-effort, never raise
+            logger.debug("AdbForwarder stop failed", exc_info=True)
         self._local_port = None

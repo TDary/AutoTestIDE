@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 import threading
@@ -6,6 +7,28 @@ from typing import Optional
 
 import psutil
 from PyQt5.QtCore import QObject, pyqtSignal
+
+from autotest_ide.core.log import getLogger
+
+logger = getLogger(__name__)
+
+
+def _build_runtest_cmd(air_dir: str, device_type: str, device_serial: str,
+                       poco_port: int, timeout: int):
+    if getattr(sys, "frozen", False):
+        base = Path(sys.executable).parent / "_internal" / "scripts"
+        cmd = [sys.executable, str(base / "runtest.py")]
+    else:
+        cmd = [sys.executable, "-m", "autotest_ide.runner.runtest"]
+
+    cmd += [
+        air_dir,
+        "--device-type", device_type,
+        "--device-serial", device_serial,
+        "--poco-port", str(poco_port),
+        "--timeout", str(timeout),
+    ]
+    return cmd
 
 
 class RunController(QObject):
@@ -18,17 +41,15 @@ class RunController(QObject):
         super().__init__(parent)
         self._process: Optional[subprocess.Popen] = None
         self._reader_thread: Optional[threading.Thread] = None
+        self._air_dir: str = ""
 
     def start(self, air_dir: str, device_type: str, device_serial: str,
               poco_port: int, timeout: int = 600):
-        cmd = [
-            sys.executable, "-m", "autotest_ide.runner.runtest",
-            air_dir,
-            "--device-type", device_type,
-            "--device-serial", device_serial,
-            "--poco-port", str(poco_port),
-            "--timeout", str(timeout),
-        ]
+        self._air_dir = air_dir
+        cmd = _build_runtest_cmd(
+            air_dir, device_type, device_serial, poco_port, timeout,
+        )
+        logger.info("Spawning subprocess: %s", " ".join(cmd))
         self._process = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )
@@ -41,6 +62,7 @@ class RunController(QObject):
     def stop(self):
         if self._process is None:
             return
+        logger.info("Stopping subprocess PID=%d", self._process.pid)
         try:
             proc = psutil.Process(self._process.pid)
             children = proc.children(recursive=True)
@@ -48,10 +70,10 @@ class RunController(QObject):
                 try:
                     child.kill()
                 except psutil.NoSuchProcess:
-                    pass
+                    logger.debug("Child process already dead")
             proc.kill()
         except psutil.NoSuchProcess:
-            pass
+            logger.debug("Process already dead during kill")
         self._process = None
         self.run_stopped.emit()
 
@@ -62,9 +84,10 @@ class RunController(QObject):
             for line in self._process.stdout:
                 self.output_received.emit(line, False)
         except ValueError:
-            pass
+            logger.debug("Pipe closed during read")
         finally:
             exit_code = self._process.wait() if self._process else -1
-            report_path = ""
+            report_path = str(Path(self._air_dir) / "report.json") if self._air_dir else ""
+            logger.debug("Subprocess exited code=%d", exit_code)
             self.run_finished.emit(exit_code, report_path)
             self._process = None

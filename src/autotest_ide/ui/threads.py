@@ -4,6 +4,9 @@ from PyQt5.QtCore import QThread, QObject, pyqtSignal
 from PyQt5.QtGui import QPixmap
 
 from autotest_ide.core.device import Device
+from autotest_ide.core.log import getLogger
+
+logger = getLogger(__name__)
 
 
 class ScreenshotWorker(QThread):
@@ -26,7 +29,7 @@ class ScreenshotWorker(QThread):
                 if not pixmap.isNull():
                     self.screenshot_ready.emit(pixmap)
             except Exception:
-                pass
+                logger.debug("Screenshot capture failed", exc_info=True)
 
     def stop(self):
         self._stop_event.set()
@@ -59,6 +62,7 @@ class PocoWorker(QThread):
                 pixmap.loadFromData(shot)
                 self.inspect_result.emit(result, pixmap)
             except Exception as e:
+                logger.warning("PocoWorker inspect failed at (%d, %d): %s", x, y, e)
                 self.inspect_failed.emit(str(e))
 
 

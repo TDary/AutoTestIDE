@@ -6,6 +6,9 @@ from typing import Optional
 from autotest_ide.core.device import Device
 from autotest_ide.core.errors import DeviceDiscoveryError
 from autotest_ide.core.forwarder import AdbForwarder, LocalForwarder
+from autotest_ide.core.log import getLogger
+
+logger = getLogger(__name__)
 
 
 class DeviceManager:
@@ -29,7 +32,9 @@ class DeviceManager:
             raise DeviceDiscoveryError(
                 f"adb devices exited {result.returncode}: {result.stderr.strip()}"
             )
-        return self._parse_devices_output(result.stdout)
+        devices = self._parse_devices_output(result.stdout)
+        logger.info("ADB discovery found %d device(s)", len(devices))
+        return devices
 
     @staticmethod
     def _parse_devices_output(stdout: str) -> list:
@@ -43,19 +48,20 @@ class DeviceManager:
                 continue
             serial = tokens[0]
             state = tokens[1]
-            if state != "device":
-                continue
-            entry = {"serial": serial, "state": state}
-            for tok in tokens[2:]:
-                if ":" in tok:
-                    k, v = tok.split(":", 1)
-                    entry[k] = v
-            devices.append(entry)
+            if state == "device":
+                entry = {"serial": serial, "state": state}
+                for tok in tokens[2:]:
+                    if ":" in tok:
+                        k, v = tok.split(":", 1)
+                        entry[k] = v
+                devices.append(entry)
+            elif state in ("unauthorized", "offline"):
+                devices.append({"serial": serial, "state": state, "model": f"({state})"})
         return devices
 
     def list_local_devices(self, ports: Optional[list] = None) -> list:
         if ports is None:
-            ports = [5001, 5002, 5003]
+            ports = [13000, 13001, 13002]
         found = []
         for port in ports:
             try:
@@ -63,13 +69,16 @@ class DeviceManager:
                 s.close()
                 found.append({"host": "127.0.0.1", "port": port})
             except OSError:
+                logger.debug("Local port %d not listening", port)
                 continue
+        logger.info("Local discovery found %d device(s)", len(found))
         return found
 
     # --- active device management ---
 
-    def connect_android(self, serial: str, remote_port: int = 5001,
+    def connect_android(self, serial: str, remote_port: int = 13000,
                         name: Optional[str] = None) -> Device:
+        logger.info("Connecting android device serial=%s remote_port=%d", serial, remote_port)
         fwd = AdbForwarder(device_serial=serial, remote_port=remote_port,
                            adb_path=self._adb_path)
         device = Device(name=name or serial, device_type="android", forwarder=fwd)
@@ -80,6 +89,7 @@ class DeviceManager:
         return device
 
     def connect_local(self, port: int, name: Optional[str] = None) -> Device:
+        logger.info("Connecting local device port=%d", port)
         fwd = LocalForwarder(local_port=port)
         device = Device(name=name or f"localhost:{port}", device_type="windows",
                         forwarder=fwd)
@@ -94,16 +104,18 @@ class DeviceManager:
         return self._active
 
     def disconnect_active(self) -> None:
+        logger.info("Disconnecting active device")
         if self._active is not None:
             self._active.disconnect()
             self._active = None
 
     def shutdown(self) -> None:
+        logger.info("DeviceManager shutdown")
         for device in self._devices:
             try:
                 device.disconnect()
             except Exception:
-                pass
+                logger.warning("Failed to disconnect device %s during shutdown", device.name, exc_info=True)
         self._active = None
 
     def _register_atexit(self) -> None:

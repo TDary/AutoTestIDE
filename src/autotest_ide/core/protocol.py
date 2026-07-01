@@ -3,6 +3,9 @@ import struct
 from typing import Any
 
 from autotest_ide.core.errors import PocoProtocolError
+from autotest_ide.core.log import getLogger
+
+logger = getLogger(__name__)
 
 HEADER_SIZE = 4
 MAX_FRAME_SIZE = 64 * 1024 * 1024  # 64 MB safety cap
@@ -32,6 +35,7 @@ def read_frame(sock) -> bytes:
         return b""
     (length,) = struct.unpack(">I", header)
     if length > MAX_FRAME_SIZE:
+        logger.warning("Oversized frame: %d bytes (max %d)", length, MAX_FRAME_SIZE)
         raise PocoProtocolError(f"frame too large: {length}")
     if length == 0:
         return b""
@@ -46,6 +50,7 @@ def read_json_frame(sock) -> dict:
     try:
         return json.loads(body.decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        logger.warning("Invalid JSON frame: %s", e)
         raise PocoProtocolError(f"invalid JSON frame: {e}")
 
 

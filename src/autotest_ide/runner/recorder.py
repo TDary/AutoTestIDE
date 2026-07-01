@@ -1,5 +1,8 @@
+from autotest_ide.core.log import getLogger
 from autotest_ide.core.poco_client import PocoClient
 from autotest_ide.runner.reporter import Reporter
+
+logger = getLogger(__name__)
 
 
 class RecordingPocoClient:
@@ -47,6 +50,7 @@ class RecordingPocoClient:
             try:
                 shot = self._inner.screenshot()
             except Exception:
+                logger.warning("Screenshot fallback failed after click error", exc_info=True)
                 shot = b""
             self._reporter.step_fail(error=str(e), screenshot=shot)
             raise
@@ -60,6 +64,7 @@ class RecordingPocoClient:
             try:
                 shot = self._inner.screenshot()
             except Exception:
+                logger.warning("Screenshot fallback failed after set_text error", exc_info=True)
                 shot = b""
             self._reporter.step_fail(error=str(e), screenshot=shot)
             raise

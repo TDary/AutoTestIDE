@@ -12,12 +12,16 @@ FAKE_ADB = [sys.executable, os.path.join(os.path.dirname(__file__), "fake_adb.py
 def test_list_android_devices_parses_device_rows():
     mgr = DeviceManager(adb_path=FAKE_ADB)
     devices = mgr.list_android_devices()
-    assert len(devices) == 1
+    assert len(devices) == 3
     d = devices[0]
     assert d["serial"] == "emulator-5554"
     assert d["state"] == "device"
     assert d["model"] == "Pixel_6"
     assert d["transport_id"] == "1"
+    assert devices[1]["serial"] == "deadbeef"
+    assert devices[1]["state"] == "offline"
+    assert devices[2]["serial"] == "cafebabe"
+    assert devices[2]["state"] == "unauthorized"
 
 
 def test_list_android_devices_returns_empty_when_no_devices(monkeypatch):
