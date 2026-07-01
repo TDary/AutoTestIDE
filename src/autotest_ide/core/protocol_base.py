@@ -94,3 +94,13 @@ class PocoProtocol(ABC):
         (e.g. JX4's ``CloseConnection``) override this.
         """
         return None
+
+    def transform_result(self, method: str, result: Any) -> Any:
+        """Post-process a decoded response before returning it to the caller.
+
+        *method* is the public API name (e.g. ``"dump_hierarchy"``).
+        Default: identity.  Protocols whose wire format differs from the
+        expected internal structure override this (e.g. JX4 hierarchy
+        conversion).
+        """
+        return result

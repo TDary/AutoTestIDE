@@ -136,7 +136,8 @@ class PocoClient:
                 logger.warning("PocoClient send failed: %s", e)
                 raise PocoConnectionError(f"send failed: {e}")
         try:
-            return future.result(timeout=timeout)
+            result = future.result(timeout=timeout)
+            return self._protocol.transform_result(method, result)
         except TimeoutError:
             with self._pending_cond:
                 for i, (f, _) in enumerate(self._pending):

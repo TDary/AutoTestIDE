@@ -261,3 +261,64 @@ class JX4Protocol(PocoProtocol):
         if raw in ("false", "False", "0"):
             return False
         return None
+
+    # ── hierarchy conversion ─────────────────────────────────────
+
+    def transform_result(self, method: str, result: Any) -> Any:
+        """Convert JX4 hierarchy tree to Poco-compatible format.
+
+        JX4 ``getHierarchy`` returns a tree whose nodes look like::
+
+            {"id": -21912, "name": "BtnStart", "x": 100, "y": 200,
+             "children": [...]}
+
+        sometimes wrapped in ``{"objs": {…}}``.
+
+        Poco expects::
+
+            {"name": "BtnStart", "type": "GameObject",
+             "payload": {"text": "", "x": 100, "y": 200},
+             "node_id": "-21912", "children": [...]}
+        """
+        if method == "dump_hierarchy" and isinstance(result, dict):
+            return _convert_jx4_node(result)
+        return result
+
+
+# ── JX4 → Poco hierarchy converter ─────────────────────────────────
+
+# Fields carried over from JX4 AltElement into Poco payload.
+_PAYLOAD_KEYS = frozenset({
+    "x", "y", "z", "width", "height", "text", "worldX", "worldY", "worldZ",
+    "id", "parentId", "cameraId", "tag", "layer", "component", "enabled",
+    "activeInHierarchy", "rectTransformPoints",
+})
+
+
+def _convert_jx4_node(raw: dict) -> dict:
+    """Recursively convert one JX4 hierarchy node (and children) to Poco format.
+
+    Handles both the ``{"objs": {…}}`` wrapper and bare nodes.
+    """
+    # Unwrap {"objs": {…}} if present.
+    if "objs" in raw and isinstance(raw["objs"], dict) and "name" not in raw:
+        raw = raw["objs"]
+
+    name = str(raw.get("name", ""))
+    node_id = str(raw.get("id", ""))
+    ntype = str(raw.get("type", raw.get("component", "GameObject")))
+
+    payload: dict[str, Any] = {}
+    for k in _PAYLOAD_KEYS:
+        if k in raw:
+            payload[k] = raw[k]
+
+    children = [_convert_jx4_node(c) for c in raw.get("children", [])]
+
+    return {
+        "name": name,
+        "type": ntype,
+        "payload": payload,
+        "node_id": node_id,
+        "children": children,
+    }

@@ -10,6 +10,7 @@ from autotest_ide.sdks.jx4.protocol import (
     _encode_request,
     _read_response,
     _parse_json_response,
+    _convert_jx4_node,
 )
 
 
@@ -112,3 +113,79 @@ def test_parse_bool():
     assert JX4Protocol.parse_bool("False") is False
     assert JX4Protocol.parse_bool("0") is False
     assert JX4Protocol.parse_bool("maybe") is None
+
+
+# ── hierarchy converter tests ──────────────────────────────────────
+
+def test_convert_jx4_node_bare():
+    raw = {
+        "id": -21912,
+        "name": "Denglu_NanNv_New(Clone)",
+        "x": 0, "y": 0,
+        "children": [
+            {"id": 100, "name": "BtnStart", "x": 100, "y": 200, "children": []},
+        ],
+    }
+    result = _convert_jx4_node(raw)
+    assert result["name"] == "Denglu_NanNv_New(Clone)"
+    assert result["node_id"] == "-21912"
+    assert result["type"] == "GameObject"
+    assert result["payload"]["x"] == 0
+    assert result["payload"]["y"] == 0
+    assert len(result["children"]) == 1
+    child = result["children"][0]
+    assert child["name"] == "BtnStart"
+    assert child["node_id"] == "100"
+    assert child["children"] == []
+
+
+def test_convert_jx4_node_objs_wrapper():
+    raw = {
+        "objs": {
+            "id": 1,
+            "name": "Root",
+            "children": [],
+        }
+    }
+    result = _convert_jx4_node(raw)
+    assert result["name"] == "Root"
+    assert result["node_id"] == "1"
+    assert result["children"] == []
+
+
+def test_convert_jx4_node_with_component():
+    raw = {
+        "id": 55,
+        "name": "Panel",
+        "component": "UnityEngine.UI.Image",
+        "children": [],
+    }
+    result = _convert_jx4_node(raw)
+    assert result["type"] == "UnityEngine.UI.Image"
+    assert result["payload"]["component"] == "UnityEngine.UI.Image"
+
+
+def test_transform_result_dump_hierarchy():
+    p = JX4Protocol()
+    raw = {"id": 1, "name": "A", "children": []}
+    result = p.transform_result("dump_hierarchy", raw)
+    assert result["name"] == "A"
+    assert "node_id" in result
+    assert "payload" in result
+
+
+def test_transform_result_passthrough():
+    p = JX4Protocol()
+    assert p.transform_result("click", {"ok": True}) == {"ok": True}
+    assert p.transform_result("dump_hierarchy", "not a dict") == "not a dict"
+
+
+def test_convert_jx4_node_text_in_payload():
+    raw = {
+        "id": 10,
+        "name": "Label",
+        "text": "Hello",
+        "children": [],
+    }
+    result = _convert_jx4_node(raw)
+    assert result["payload"]["text"] == "Hello"
