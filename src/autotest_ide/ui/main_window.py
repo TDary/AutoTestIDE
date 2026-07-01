@@ -177,15 +177,17 @@ class MainWindow(QMainWindow):
                         label += " - 请在手机上允许USB调试"
                     label += "]"
                 self.device_combo.addItem(label, ("android", d["serial"], state))
-        except Exception:
+        except Exception as e:
             logger.warning("Failed to refresh android devices", exc_info=True)
+            self.console.append_text(f"刷新安卓设备失败: {e}", is_error=True)
         try:
             local = self._device_mgr.list_local_devices()
             for d in local:
                 label = f"localhost:{d['port']}"
                 self.device_combo.addItem(label, ("local", d["port"], "device"))
-        except Exception:
+        except Exception as e:
             logger.warning("Failed to refresh local devices", exc_info=True)
+            self.console.append_text(f"刷新本地设备失败: {e}", is_error=True)
 
     def _connect_selected_device(self):
         data = self.device_combo.currentData()

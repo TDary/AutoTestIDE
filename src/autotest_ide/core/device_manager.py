@@ -22,10 +22,19 @@ class DeviceManager:
 
     # --- discovery (spec §4.2) ---
 
+    def _ensure_adb_server(self) -> None:
+        """Start the ADB daemon if it isn't running yet."""
+        cmd = self._adb_path + ["start-server"]
+        try:
+            subprocess.run(cmd, capture_output=True, timeout=10, text=True)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            logger.debug("adb start-server failed (may already be running): %s", e)
+
     def list_android_devices(self) -> list:
+        self._ensure_adb_server()
         cmd = self._adb_path + ["devices", "-l"]
         try:
-            result = subprocess.run(cmd, capture_output=True, timeout=5, text=True)
+            result = subprocess.run(cmd, capture_output=True, timeout=10, text=True)
         except (OSError, subprocess.TimeoutExpired) as e:
             raise DeviceDiscoveryError(f"adb devices failed: {e}") from e
         if result.returncode != 0:
