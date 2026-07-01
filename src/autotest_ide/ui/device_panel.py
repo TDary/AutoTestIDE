@@ -14,7 +14,7 @@ class OverlayWidget(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        pen = QPen(QColor(255, 0, 0), 2, Qt.DashLine)
+        pen = QPen(QColor("#f38ba8"), 2, Qt.DashLine)
         painter.setPen(pen)
         for r in self._rects:
             painter.drawRect(r)
@@ -26,14 +26,14 @@ class DevicePanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumWidth(250)
+        self.setMinimumWidth(240)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
         self._screenshot_label = QLabel()
         self._screenshot_label.setAlignment(Qt.AlignCenter)
-        self._screenshot_label.setStyleSheet("background-color: #1a1a2e;")
+        self._screenshot_label.setStyleSheet("background-color: #11111b;")
         layout.addWidget(self._screenshot_label)
 
         self._overlay = OverlayWidget(self._screenshot_label)

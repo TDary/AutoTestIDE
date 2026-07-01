@@ -13,7 +13,7 @@ class Console(QTextEdit):
         font.setStyleHint(QFont.Monospace)
         self.setFont(font)
         self._error_fmt = QTextCharFormat()
-        self._error_fmt.setForeground(QColor("red"))
+        self._error_fmt.setForeground(QColor("#f38ba8"))
 
     def append_text(self, text: str, is_error: bool = False):
         cursor = self.textCursor()

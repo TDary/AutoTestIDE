@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import QApplication, QMessageBox
 
 from autotest_ide.core.log import getLogger, setup_logging
 from autotest_ide.ui.main_window import MainWindow
+from autotest_ide.ui.style import DARK_STYLE
 
 logger = getLogger(__name__)
 
@@ -16,6 +17,7 @@ def main():
         app = QApplication(sys.argv)
         app.setApplicationName("AutoTest IDE")
         app.setOrganizationName("AutoTest")
+        app.setStyleSheet(DARK_STYLE)
         window = MainWindow()
         window.show()
         sys.exit(app.exec_())

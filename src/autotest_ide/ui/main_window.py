@@ -31,6 +31,7 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
         self.setWindowTitle("AutoTest IDE")
         self.resize(1280, 720)
+        self.setMinimumSize(960, 540)
 
         self._device_mgr = DeviceManager()
         self._screenshot_worker = None
@@ -91,10 +92,11 @@ class MainWindow(QMainWindow):
 
     def _init_toolbar(self):
         toolbar = QToolBar("主工具栏")
+        toolbar.setMovable(False)
         self.addToolBar(toolbar)
 
         self.device_combo = QComboBox()
-        self.device_combo.setMinimumWidth(200)
+        self.device_combo.setMinimumWidth(220)
         toolbar.addWidget(self.device_combo)
 
         toolbar.addSeparator()
@@ -103,27 +105,27 @@ class MainWindow(QMainWindow):
         self.sdk_combo = QComboBox()
         self.sdk_combo.addItem("Poco (标准)", "poco")
         self.sdk_combo.addItem("JX4 (AltrunUnityDriver)", "jx4")
-        self.sdk_combo.setMinimumWidth(200)
+        self.sdk_combo.setMinimumWidth(220)
         toolbar.addWidget(self.sdk_combo)
 
-        self._refresh_action = QAction("刷新设备", self)
+        self._refresh_action = QAction("⟳ 刷新设备", self)
         self._refresh_action.triggered.connect(self._refresh_devices)
         toolbar.addAction(self._refresh_action)
 
-        self._connect_action = QAction("连接", self)
+        self._connect_action = QAction("⚡ 连接", self)
         self._connect_action.triggered.connect(self._connect_selected_device)
         toolbar.addAction(self._connect_action)
 
-        self._disconnect_action = QAction("断开", self)
+        self._disconnect_action = QAction("✖ 断开", self)
         self._disconnect_action.triggered.connect(self._disconnect_device)
         toolbar.addAction(self._disconnect_action)
 
         toolbar.addSeparator()
 
-        self.run_action = QAction("运行", self)
+        self.run_action = QAction("▶ 运行", self)
         toolbar.addAction(self.run_action)
 
-        self.stop_action = QAction("停止", self)
+        self.stop_action = QAction("■ 停止", self)
         self.stop_action.setEnabled(False)
         toolbar.addAction(self.stop_action)
 
@@ -131,6 +133,8 @@ class MainWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         layout = QHBoxLayout(central)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(0)
 
         self.device_panel = DevicePanel()
         self.editor = Editor()
@@ -150,15 +154,16 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(0, 2)
         splitter.setStretchFactor(1, 5)
         splitter.setStretchFactor(2, 3)
+        splitter.setSizes([256, 640, 384])
 
         layout.addWidget(splitter)
 
     def _init_statusbar(self):
         status = QStatusBar()
         self.setStatusBar(status)
-        self.status_device = QLabel("设备: 未连接")
-        self.status_protocol = QLabel("协议: -")
-        self.status_coords = QLabel("坐标: -")
+        self.status_device = QLabel("  设备: 未连接  ")
+        self.status_protocol = QLabel("  协议: -  ")
+        self.status_coords = QLabel("  坐标: -  ")
         status.addPermanentWidget(self.status_device)
         status.addPermanentWidget(self.status_protocol)
         status.addPermanentWidget(self.status_coords)
@@ -240,8 +245,8 @@ class MainWindow(QMainWindow):
         self._device_mgr.disconnect_active()
         self._cached_root = None
         self._cached_flat = []
-        self.status_device.setText("设备: 未连接")
-        self.status_protocol.setText("协议: -")
+        self.status_device.setText("  设备: 未连接  ")
+        self.status_protocol.setText("  协议: -  ")
         self.device_panel.clear_highlight()
         self.property_panel.show_properties({})
         self.tree_panel.load_tree({"name": "", "type": "", "payload": {}, "children": []})
@@ -308,14 +313,14 @@ class MainWindow(QMainWindow):
             self._screenshot_worker = None
 
     def _on_device_status_changed(self, status):
-        self.status_device.setText(f"设备: {status}")
+        self.status_device.setText(f"  设备: {status}  ")
         device = self._device_mgr.active
         if device and status == "online":
             if not self._screenshot_worker:
                 self._start_screenshot_worker(device)
             if device.poco:
                 sdk = self.sdk_combo.currentData() or "poco"
-                self.status_protocol.setText(f"协议: {device.poco.protocol_version or '-'} ({sdk})")
+                self.status_protocol.setText(f"  协议: {device.poco.protocol_version or '-'} ({sdk})  ")
         elif status == "offline":
             self._stop_screenshot_worker()
         elif status == "disconnected":
@@ -325,7 +330,7 @@ class MainWindow(QMainWindow):
         device = self._device_mgr.active
         if not device or device.status != "online":
             return
-        self.status_coords.setText(f"坐标: ({x}, {y})")
+        self.status_coords.setText(f"  坐标: ({x}, {y})  ")
         if self._poco_worker and self._poco_worker.isRunning():
             return
         logger.debug("Inspect requested at (%d, %d)", x, y)

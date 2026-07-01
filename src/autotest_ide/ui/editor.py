@@ -9,7 +9,7 @@ class PythonHighlighter(QSyntaxHighlighter):
         self._rules = []
 
         keyword_fmt = QTextCharFormat()
-        keyword_fmt.setForeground(QColor("#ff79c6"))
+        keyword_fmt.setForeground(QColor("#cba6f7"))
         keyword_fmt.setFontWeight(QFont.Bold)
         keywords = [
             "import", "from", "class", "def", "if", "elif", "else",
@@ -19,13 +19,24 @@ class PythonHighlighter(QSyntaxHighlighter):
         for kw in keywords:
             self._rules.append((QRegularExpression(r"\b" + kw + r"\b"), keyword_fmt))
 
+        builtin_fmt = QTextCharFormat()
+        builtin_fmt.setForeground(QColor("#fab387"))
+        builtins = ["poco", "print", "range", "len", "int", "str", "float", "list", "dict", "set", "tuple"]
+        for b in builtins:
+            self._rules.append((QRegularExpression(r"\b" + b + r"\b"), builtin_fmt))
+
         string_fmt = QTextCharFormat()
-        string_fmt.setForeground(QColor("#f1fa8c"))
-        self._rules.append((QRegularExpression(r'".*"'), string_fmt))
-        self._rules.append((QRegularExpression(r"'.*'"), string_fmt))
+        string_fmt.setForeground(QColor("#a6e3a0"))
+        self._rules.append((QRegularExpression(r'".*?"'), string_fmt))
+        self._rules.append((QRegularExpression(r"'.*?'"), string_fmt))
+
+        number_fmt = QTextCharFormat()
+        number_fmt.setForeground(QColor("#fab387"))
+        self._rules.append((QRegularExpression(r"\b[0-9]+\.?[0-9]*\b"), number_fmt))
 
         comment_fmt = QTextCharFormat()
-        comment_fmt.setForeground(QColor("#6272a4"))
+        comment_fmt.setForeground(QColor("#6c7086"))
+        comment_fmt.setFontItalic(True)
         self._rules.append((QRegularExpression(r"#[^\n]*"), comment_fmt))
 
     def highlightBlock(self, text):
