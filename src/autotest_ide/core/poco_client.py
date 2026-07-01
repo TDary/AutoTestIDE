@@ -1,6 +1,7 @@
 import ipaddress
 import socket
 import threading
+from collections import Counter
 from concurrent.futures import Future
 from typing import Optional
 
@@ -34,7 +35,12 @@ def _is_loopback(host: str) -> bool:
 
 
 class PocoClient:
-    """Synchronous client for the Poco JSON-RPC protocol over TCP."""
+    """Synchronous client for the Poco JSON-RPC protocol over TCP.
+
+    Supports multiple in-flight requests: the recv loop dispatches
+    responses by their ``id`` field, so heartbeat no longer blocks
+    screenshots.
+    """
 
     def __init__(self, host: str = "127.0.0.1", port: int = 13000):
         self._host = host
@@ -47,8 +53,10 @@ class PocoClient:
         self._seq = 0
         self._seq_lock = threading.Lock()
         self._send_lock = threading.Lock()
-        self._current: Optional[dict] = None  # {"future", "expect_binary"}
-        self._request_event = threading.Event()
+        self._pending: dict[int, Future] = {}          # seq -> Future (JSON)
+        self._pending_binary: dict[int, Future] = {}    # seq -> Future (binary)
+        self._pending_lock = threading.Lock()
+        self._recv_event = threading.Event()
         self._recv_thread: Optional[threading.Thread] = None
         self._closed = True
         self.server_version: Optional[str] = None
@@ -58,6 +66,9 @@ class PocoClient:
         try:
             self._sock = socket.create_connection((self._host, self._port), timeout=5)
             self._sock.settimeout(None)
+            self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            if hasattr(socket, "SIO_KEEPALIVE_VALS"):
+                self._sock.ioctl(socket.SIO_KEEPALIVE_VALS, (1, 10000, 3000))
         except OSError as e:
             logger.warning("PocoClient connect failed %s:%d: %s", self._host, self._port, e)
             raise PocoConnectionError(f"connect failed: {e}")
@@ -82,13 +93,25 @@ class PocoClient:
 
     def close(self):
         self._closed = True
-        self._request_event.set()
+        self._recv_event.set()
         if self._sock is not None:
             try:
                 self._sock.close()
             except OSError:
                 pass
             self._sock = None
+        self._drain_pending(PocoConnectionError("client closed"))
+
+    def _drain_pending(self, exc: Exception):
+        with self._pending_lock:
+            for f in list(self._pending.values()):
+                if not f.done():
+                    f.set_exception(type(exc)(str(exc)))
+            self._pending.clear()
+            for f in list(self._pending_binary.values()):
+                if not f.done():
+                    f.set_exception(type(exc)(str(exc)))
+            self._pending_binary.clear()
 
     def _next_seq(self) -> int:
         with self._seq_lock:
@@ -104,59 +127,84 @@ class PocoClient:
         with self._send_lock:
             seq = self._next_seq()
             future: Future = Future()
-            self._current = {"future": future, "expect_binary": expect_binary}
-            self._request_event.set()
+            with self._pending_lock:
+                if expect_binary:
+                    self._pending_binary[seq] = future
+                else:
+                    self._pending[seq] = future
+            self._recv_event.set()
             payload = {"jsonrpc": "2.0", "id": seq, "method": method, "params": params}
             try:
                 self._sock.sendall(encode_json_frame(payload))
             except OSError as e:
-                self._current = None
-                self._request_event.clear()
+                with self._pending_lock:
+                    self._pending.pop(seq, None)
+                    self._pending_binary.pop(seq, None)
                 logger.warning("PocoClient send failed: %s", e)
                 raise PocoConnectionError(f"send failed: {e}")
-            try:
-                return future.result(timeout=timeout)
-            except TimeoutError:
-                self._current = None
-                self._request_event.clear()
-                self.close()
-                logger.warning("PocoClient %s timed out after %ss", method, timeout)
-                raise PocoTimeoutError(f"{method} timed out after {timeout}s")
+        try:
+            return future.result(timeout=timeout)
+        except TimeoutError:
+            with self._pending_lock:
+                self._pending.pop(seq, None)
+                self._pending_binary.pop(seq, None)
+            self.close()
+            logger.warning("PocoClient %s timed out after %ss", method, timeout)
+            raise PocoTimeoutError(f"{method} timed out after {timeout}s")
 
     def _recv_loop(self):
         while not self._closed:
-            self._request_event.wait()
-            if self._closed or self._current is None:
-                continue
-            expect_binary = self._current["expect_binary"]
-            future = self._current["future"]
+            if not self._pending and not self._pending_binary:
+                self._recv_event.wait()
+                self._recv_event.clear()
+                if self._closed:
+                    break
             try:
-                if expect_binary:
-                    data = read_binary_frame(self._sock)
-                    if not data:
-                        future.set_exception(PocoConnectionError("connection closed"))
-                    else:
-                        future.set_result(data)
+                msg = read_json_frame(self._sock)
+                seq = msg.get("id")
+                if seq is None:
+                    continue
+                if "error" in msg:
+                    err = msg["error"]
+                    exc = PocoRemoteError(
+                        err.get("code", -1),
+                        err.get("message", ""),
+                        err.get("data"),
+                    )
                 else:
-                    msg = read_json_frame(self._sock)
-                    if "error" in msg:
-                        err = msg["error"]
-                        future.set_exception(PocoRemoteError(
-                            err.get("code", -1),
-                            err.get("message", ""),
-                            err.get("data"),
-                        ))
+                    exc = None
+                with self._pending_lock:
+                    if seq in self._pending_binary:
+                        future = self._pending_binary.pop(seq)
+                        if exc:
+                            future.set_exception(exc)
+                        else:
+                            try:
+                                data = read_binary_frame(self._sock)
+                                if not data:
+                                    future.set_exception(PocoConnectionError("connection closed"))
+                                else:
+                                    future.set_result(data)
+                            except Exception as e:
+                                future.set_exception(e)
+                    elif seq in self._pending:
+                        future = self._pending.pop(seq)
+                        if exc:
+                            future.set_exception(exc)
+                        else:
+                            future.set_result(msg.get("result", {}))
                     else:
-                        future.set_result(msg.get("result", {}))
+                        logger.debug("Received response for unknown seq %d", seq)
             except (ConnectionError, OSError) as e:
                 logger.debug("PocoClient recv connection error: %s", e)
-                future.set_exception(PocoConnectionError(str(e)))
+                self._drain_pending(PocoConnectionError(str(e)))
+                self.close()
+                break
             except Exception as e:
                 logger.warning("PocoClient recv unexpected error: %s", e, exc_info=True)
-                future.set_exception(e)
-            finally:
-                self._current = None
-                self._request_event.clear()
+                self._drain_pending(e)
+                self.close()
+                break
 
     # --- public protocol methods ---
 
@@ -187,13 +235,17 @@ class PocoClient:
         return self._request_binary("binary_read", {"seq": binary_seq})
 
     def heartbeat(self) -> bool:
-        """Cheap liveness probe. Returns True if the server responded.
+        """Cheap liveness probe. Returns True if the connection is alive.
 
-        Never raises: callers use this for periodic health checks and
-        should not have to wrap it in try/except.
+        Uses TCP keepalive and pending-futures check instead of an
+        explicit network round-trip. Never blocks other requests.
         """
         if self._closed:
             return False
+        with self._pending_lock:
+            has_pending = bool(self._pending or self._pending_binary)
+        if has_pending:
+            return True
         try:
             self._request_json("get_screen_size", {}, timeout=2.0)
             return True

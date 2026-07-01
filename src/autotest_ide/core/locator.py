@@ -1,3 +1,4 @@
+from collections import Counter
 from typing import Optional
 
 
@@ -12,9 +13,11 @@ def generate_locator(node: dict, all_nodes: Optional[list] = None) -> str:
     node_id = node.get("node_id", "")
 
     if name:
-        if all_nodes is None or sum(1 for n in all_nodes if n.get("name") == name) <= 1:
-            return f'poco("{name}")'
-        return f'poco(name="{name}", type="{ntype}")'
+        if all_nodes is not None:
+            name_counts = Counter(n.get("name", "") for n in all_nodes)
+            if name_counts[name] > 1:
+                return f'poco(name="{name}", type="{ntype}")'
+        return f'poco("{name}")'
 
     if text:
         return f'poco(text="{text}", type="{ntype}")'

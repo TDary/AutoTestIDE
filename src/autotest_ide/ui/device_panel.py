@@ -41,14 +41,29 @@ class DevicePanel(QWidget):
 
         self._current_pixmap: QPixmap = QPixmap()
         self._scale_ratio: float = 1.0
+        self._scaled_w: int = 0
+        self._scaled_h: int = 0
+        self._offset_x: float = 0.0
+        self._offset_y: float = 0.0
 
-    def update_screenshot(self, pixmap: QPixmap):
-        self._current_pixmap = pixmap
+    def update_screenshot(self, data):
+        if isinstance(data, bytes):
+            pm = QPixmap()
+            pm.loadFromData(data)
+            if pm.isNull():
+                return
+            self._current_pixmap = pm
+        else:
+            self._current_pixmap = data
         label_size = self._screenshot_label.size()
-        scaled = pixmap.scaled(label_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        scaled = self._current_pixmap.scaled(label_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self._screenshot_label.setPixmap(scaled)
-        if not pixmap.isNull() and label_size.width() > 0:
-            self._scale_ratio = scaled.width() / pixmap.width()
+        if not self._current_pixmap.isNull() and label_size.width() > 0:
+            self._scale_ratio = scaled.width() / self._current_pixmap.width()
+            self._scaled_w = scaled.width()
+            self._scaled_h = scaled.height()
+            self._offset_x = (label_size.width() - scaled.width()) / 2
+            self._offset_y = (label_size.height() - scaled.height()) / 2
         else:
             self._scale_ratio = 1.0
 
@@ -70,14 +85,10 @@ class DevicePanel(QWidget):
     def mousePressEvent(self, event):
         if self._current_pixmap.isNull() or self._scale_ratio == 0:
             return
-        label_size = self._screenshot_label.size()
-        scaled = self._current_pixmap.scaled(label_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        offset_x = (label_size.width() - scaled.width()) / 2
-        offset_y = (label_size.height() - scaled.height()) / 2
         pos = event.pos()
-        lx = pos.x() - self._screenshot_label.pos().x() - offset_x
-        ly = pos.y() - self._screenshot_label.pos().y() - offset_y
-        if lx < 0 or ly < 0 or lx >= scaled.width() or ly >= scaled.height():
+        lx = pos.x() - self._screenshot_label.pos().x() - self._offset_x
+        ly = pos.y() - self._screenshot_label.pos().y() - self._offset_y
+        if lx < 0 or ly < 0 or lx >= self._scaled_w or ly >= self._scaled_h:
             return
         x = int(lx / self._scale_ratio)
         y = int(ly / self._scale_ratio)

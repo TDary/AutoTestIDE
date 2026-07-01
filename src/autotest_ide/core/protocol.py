@@ -19,12 +19,16 @@ def encode_json_frame(payload: dict) -> bytes:
 
 def read_exactly(sock, n: int) -> bytes:
     """Read exactly n bytes from sock. Returns b'' if the connection closes early."""
-    buf = bytearray()
-    while len(buf) < n:
-        chunk = sock.recv(n - len(buf))
-        if not chunk:
+    if n == 0:
+        return b""
+    buf = bytearray(n)
+    view = memoryview(buf)
+    pos = 0
+    while pos < n:
+        chunk = sock.recv_into(view[pos:], n - pos)
+        if chunk == 0:
             return b""
-        buf.extend(chunk)
+        pos += chunk
     return bytes(buf)
 
 

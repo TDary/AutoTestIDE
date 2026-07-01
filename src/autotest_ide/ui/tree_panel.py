@@ -19,27 +19,30 @@ class TreePanel(QTreeView):
         self._add_node(root_node, self._model.invisibleRootItem())
 
     def _add_node(self, node: dict, parent_item):
-        name = node.get("name", "")
-        ntype = node.get("type", "")
-        text = node.get("payload", {}).get("text", "")
-        node_id = node.get("node_id", "")
+        stack = [(node, parent_item)]
+        while stack:
+            current, parent = stack.pop()
+            name = current.get("name", "")
+            ntype = current.get("type", "")
+            text = current.get("payload", {}).get("text", "")
+            node_id = current.get("node_id", "")
 
-        name_item = QStandardItem(name)
-        type_item = QStandardItem(ntype)
-        text_item = QStandardItem(text)
+            name_item = QStandardItem(name)
+            type_item = QStandardItem(ntype)
+            text_item = QStandardItem(text)
 
-        name_item.setData(node_id, Qt.UserRole)
-        name_item.setEditable(False)
-        type_item.setEditable(False)
-        text_item.setEditable(False)
+            name_item.setData(node_id, Qt.UserRole)
+            name_item.setEditable(False)
+            type_item.setEditable(False)
+            text_item.setEditable(False)
 
-        parent_item.appendRow([name_item, type_item, text_item])
+            parent.appendRow([name_item, type_item, text_item])
 
-        if node_id:
-            self._node_map[node_id] = name_item
+            if node_id:
+                self._node_map[node_id] = name_item
 
-        for child in node.get("children", []):
-            self._add_node(child, name_item)
+            for child in reversed(current.get("children", [])):
+                stack.append((child, name_item))
 
     def highlight_node(self, node_id: str):
         if node_id in self._node_map:

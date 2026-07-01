@@ -1,4 +1,4 @@
-from PyQt5.QtCore import QRegExp
+from PyQt5.QtCore import QRegularExpression
 from PyQt5.QtGui import QColor, QTextCharFormat, QSyntaxHighlighter, QFont
 from PyQt5.QtWidgets import QPlainTextEdit
 
@@ -17,24 +17,23 @@ class PythonHighlighter(QSyntaxHighlighter):
             "with", "as", "and", "or", "not", "in", "is", "True", "False", "None",
         ]
         for kw in keywords:
-            self._rules.append((QRegExp(r"\b" + kw + r"\b"), keyword_fmt))
+            self._rules.append((QRegularExpression(r"\b" + kw + r"\b"), keyword_fmt))
 
         string_fmt = QTextCharFormat()
         string_fmt.setForeground(QColor("#f1fa8c"))
-        self._rules.append((QRegExp(r'".*"'), string_fmt))
-        self._rules.append((QRegExp(r"'.*'"), string_fmt))
+        self._rules.append((QRegularExpression(r'".*"'), string_fmt))
+        self._rules.append((QRegularExpression(r"'.*'"), string_fmt))
 
         comment_fmt = QTextCharFormat()
         comment_fmt.setForeground(QColor("#6272a4"))
-        self._rules.append((QRegExp(r"#[^\n]*"), comment_fmt))
+        self._rules.append((QRegularExpression(r"#[^\n]*"), comment_fmt))
 
     def highlightBlock(self, text):
         for pattern, fmt in self._rules:
-            index = pattern.indexIn(text)
-            while index >= 0:
-                length = pattern.matchedLength()
-                self.setFormat(index, length, fmt)
-                index = pattern.indexIn(text, index + length)
+            it = pattern.globalMatch(text)
+            while it.hasNext():
+                match = it.next()
+                self.setFormat(match.capturedStart(), match.capturedLength(), fmt)
 
 
 class Editor(QPlainTextEdit):

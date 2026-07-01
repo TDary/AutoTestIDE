@@ -165,7 +165,11 @@ class FakePocoServer:
                     }
                 }))
                 return
-            # Send a raw binary frame: 4-byte length + bytes (NOT JSON).
+            # JSON ack first (so the client recv loop can match the id),
+            # then the raw binary frame.
+            conn.sendall(encode_json_frame({
+                "jsonrpc": "2.0", "id": seq, "result": {"length": len(data)}
+            }))
             import struct
             conn.sendall(struct.pack(">I", len(data)) + data)
             return

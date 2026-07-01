@@ -38,6 +38,8 @@ class MainWindow(QMainWindow):
         self._run_controller = RunController(self)
         self._report_view = None
         self._current_file = None
+        self._cached_root = None
+        self._cached_flat = []
 
         self._init_menubar()
         self._init_toolbar()
@@ -205,12 +207,16 @@ class MainWindow(QMainWindow):
 
         if device.status == "online":
             self._start_screenshot_worker(device)
-            self.tree_panel.load_tree(device.poco.get_root())
+            self._cached_root = device.poco.get_root()
+            self._cached_flat = self._flatten_tree(self._cached_root)
+            self.tree_panel.load_tree(self._cached_root)
 
     def _disconnect_device(self):
         logger.info("Disconnecting device")
         self._stop_screenshot_worker()
         self._device_mgr.disconnect_active()
+        self._cached_root = None
+        self._cached_flat = []
         self.status_device.setText("设备: 未连接")
         self.status_protocol.setText("协议: -")
         self.device_panel.clear_highlight()
@@ -254,17 +260,14 @@ class MainWindow(QMainWindow):
         self._poco_worker.inspect_failed.connect(self._on_inspect_failed)
         self._poco_worker.inspect(x, y)
 
-    def _on_inspect_result(self, result: dict, screenshot: QPixmap):
+    def _on_inspect_result(self, result: dict, screenshot_bytes: bytes):
         device = self._device_mgr.active
         if not device:
             return
         node_id = result.get("node_id", "")
-        self.device_panel.update_screenshot(screenshot)
-        try:
-            root = device.poco.get_root()
-            self.tree_panel.load_tree(root)
-        except Exception:
-            logger.debug("Failed to reload tree after inspect", exc_info=True)
+        self.device_panel.update_screenshot(screenshot_bytes)
+        root = self._cached_root
+        flat = self._cached_flat
         if node_id:
             self.tree_panel.highlight_node(node_id)
         node = self._find_node_in_tree(device, node_id) if device and node_id else None
@@ -272,7 +275,7 @@ class MainWindow(QMainWindow):
             bounds = node.get("payload", {}).get("visibleBounds", {})
             self.device_panel.highlight_region(bounds)
             self.property_panel.show_properties(node.get("payload", {}))
-            locator = generate_locator(node, all_nodes=self._flatten_tree(root))
+            locator = generate_locator(node, all_nodes=flat)
             self.editor.insert_locator_code(f"{locator}.click()")
         else:
             self.device_panel.clear_highlight()

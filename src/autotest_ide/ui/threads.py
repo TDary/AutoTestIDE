@@ -10,7 +10,7 @@ logger = getLogger(__name__)
 
 
 class ScreenshotWorker(QThread):
-    screenshot_ready = pyqtSignal(QPixmap)
+    screenshot_ready = pyqtSignal(bytes)
 
     def __init__(self, device: Device, fps: int = 5, parent=None):
         super().__init__(parent)
@@ -24,10 +24,7 @@ class ScreenshotWorker(QThread):
                 continue
             try:
                 png_bytes = self._device.poco.screenshot()
-                pixmap = QPixmap()
-                pixmap.loadFromData(png_bytes)
-                if not pixmap.isNull():
-                    self.screenshot_ready.emit(pixmap)
+                self.screenshot_ready.emit(png_bytes)
             except Exception:
                 logger.debug("Screenshot capture failed", exc_info=True)
 
@@ -37,7 +34,7 @@ class ScreenshotWorker(QThread):
 
 
 class PocoWorker(QThread):
-    inspect_result = pyqtSignal(dict, QPixmap)
+    inspect_result = pyqtSignal(dict, bytes)
     inspect_failed = pyqtSignal(str)
 
     def __init__(self, device: Device, parent=None):
@@ -58,9 +55,7 @@ class PocoWorker(QThread):
             try:
                 result = self._device.poco.inspect_by_point(x, y)
                 shot = self._device.poco.screenshot()
-                pixmap = QPixmap()
-                pixmap.loadFromData(shot)
-                self.inspect_result.emit(result, pixmap)
+                self.inspect_result.emit(result, shot)
             except Exception as e:
                 logger.warning("PocoWorker inspect failed at (%d, %d): %s", x, y, e)
                 self.inspect_failed.emit(str(e))
