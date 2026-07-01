@@ -18,6 +18,53 @@ QMainWindow {
     background-color: #1e1e2e;
 }
 
+/* ── Custom Title Bar ─────────────────────────────────────────── */
+QWidget#custom_title_bar {
+    background-color: #181825;
+    border-bottom: 1px solid #0a0a14;
+}
+QLabel#title_label {
+    color: #cdd6f4;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 0 8px;
+    background: transparent;
+}
+QPushButton#title_btn_min,
+QPushButton#title_btn_max,
+QPushButton#title_btn_menu {
+    background: transparent;
+    border: none;
+    color: #a6adc8;
+    font-size: 14px;
+    font-weight: bold;
+}
+QPushButton#title_btn_min:hover,
+QPushButton#title_btn_max:hover,
+QPushButton#title_btn_menu:hover {
+    background-color: #313244;
+    color: #cdd6f4;
+}
+QPushButton#title_btn_min:pressed,
+QPushButton#title_btn_max:pressed,
+QPushButton#title_btn_menu:pressed {
+    background-color: #45475a;
+}
+QPushButton#title_btn_close {
+    background: transparent;
+    border: none;
+    color: #a6adc8;
+    font-size: 13px;
+}
+QPushButton#title_btn_close:hover {
+    background-color: #d20f39;
+    color: #ffffff;
+}
+QPushButton#title_btn_close:pressed {
+    background-color: #a30d2e;
+    color: #ffffff;
+}
+
 /* ── Menu Bar ─────────────────────────────────────────────────── */
 QMenuBar {
     background-color: #181825;
@@ -87,82 +134,127 @@ QToolBar QToolButton:disabled {
     border: 1px solid #313244;
 }
 
-/* ── Color-coded action buttons ────────────────────────────────── */
-QToolBar QToolButton#btn_refresh {
+/* ── Device / Run bars (below title bar) ──────────────────────── */
+QWidget#device_bar, QWidget#run_bar {
+    background-color: #181825;
+    border-bottom: 1px solid #0a0a14;
+}
+QWidget#device_bar QLabel, QWidget#run_bar QLabel {
+    background: transparent;
+}
+QWidget#device_bar QComboBox, QWidget#run_bar QComboBox {
+    min-height: 26px;
+}
+
+QToolButton#btn_refresh {
     background-color: #313244;
     color: #89b4fa;
     border: 1px solid rgba(137, 180, 250, 0.4);
+    padding: 5px 12px;
+    border-radius: 5px;
+    font-size: 12px;
 }
-QToolBar QToolButton#btn_refresh:hover {
+QToolButton#btn_refresh:hover {
     background-color: rgba(137, 180, 250, 0.18);
     border: 1px solid #89b4fa;
 }
+QToolButton#btn_refresh:disabled {
+    background-color: #181825;
+    color: #45475a;
+    border: 1px solid #313244;
+}
 
-QToolBar QToolButton#btn_connect {
+QToolButton#btn_connect {
     background-color: rgba(166, 227, 161, 0.15);
     color: #a6e3a1;
     border: 1px solid rgba(166, 227, 161, 0.5);
+    padding: 5px 14px;
+    border-radius: 5px;
+    font-size: 12px;
 }
-QToolBar QToolButton#btn_connect:hover {
+QToolButton#btn_connect:hover {
     background-color: rgba(166, 227, 161, 0.28);
     border: 1px solid #a6e3a1;
 }
-QToolBar QToolButton#btn_connect:pressed {
+QToolButton#btn_connect:pressed {
     background-color: rgba(166, 227, 161, 0.4);
 }
+QToolButton#btn_connect:disabled {
+    background-color: #181825;
+    color: #45475a;
+    border: 1px solid #313244;
+}
 
-QToolBar QToolButton#btn_disconnect {
+QToolButton#btn_disconnect {
     background-color: rgba(243, 139, 168, 0.15);
     color: #f38ba8;
     border: 1px solid rgba(243, 139, 168, 0.5);
+    padding: 5px 14px;
+    border-radius: 5px;
+    font-size: 12px;
 }
-QToolBar QToolButton#btn_disconnect:hover {
+QToolButton#btn_disconnect:hover {
     background-color: rgba(243, 139, 168, 0.28);
     border: 1px solid #f38ba8;
 }
-QToolBar QToolButton#btn_disconnect:pressed {
+QToolButton#btn_disconnect:pressed {
     background-color: rgba(243, 139, 168, 0.4);
 }
+QToolButton#btn_disconnect:disabled {
+    background-color: #181825;
+    color: #45475a;
+    border: 1px solid #313244;
+}
 
-QToolBar QToolButton#btn_run {
+QToolButton#btn_run {
     background-color: rgba(166, 227, 161, 0.22);
     color: #a6e3a1;
     border: 1px solid rgba(166, 227, 161, 0.7);
+    padding: 6px 16px;
+    border-radius: 5px;
+    font-size: 13px;
     font-weight: bold;
 }
-QToolBar QToolButton#btn_run:hover {
+QToolButton#btn_run:hover {
     background-color: rgba(166, 227, 161, 0.4);
     border: 1px solid #a6e3a1;
 }
-QToolBar QToolButton#btn_run:pressed {
+QToolButton#btn_run:pressed {
     background-color: rgba(166, 227, 161, 0.55);
 }
+QToolButton#btn_run:disabled {
+    background-color: #181825;
+    color: #45475a;
+    border: 1px solid #313244;
+}
 
-QToolBar QToolButton#btn_stop {
+QToolButton#btn_stop {
     background-color: rgba(243, 139, 168, 0.22);
     color: #f38ba8;
     border: 1px solid rgba(243, 139, 168, 0.7);
+    padding: 6px 16px;
+    border-radius: 5px;
+    font-size: 13px;
     font-weight: bold;
 }
-QToolBar QToolButton#btn_stop:hover {
+QToolButton#btn_stop:hover {
     background-color: rgba(243, 139, 168, 0.4);
     border: 1px solid #f38ba8;
 }
-QToolBar QToolButton#btn_stop:pressed {
+QToolButton#btn_stop:pressed {
     background-color: rgba(243, 139, 168, 0.55);
 }
-
-/* Toolbar title label (left side) */
-QToolBar QLabel#toolbar_title {
-    color: #cdd6f4;
-    font-size: 14px;
-    font-weight: bold;
-    padding: 0 8px 0 4px;
+QToolButton#btn_stop:disabled {
+    background-color: #181825;
+    color: #45475a;
+    border: 1px solid #313244;
 }
-QToolBar QLabel#toolbar_section {
+
+QWidget#device_bar QLabel#toolbar_section,
+QWidget#run_bar QLabel#toolbar_section {
     color: #6c7086;
     font-size: 11px;
-    padding: 0 4px 0 8px;
+    padding: 0 4px;
 }
 QComboBox {
     background-color: #313244;

@@ -46,6 +46,7 @@ a = Analysis(
         "autotest_ide.ui.report_view",
         "autotest_ide.ui.icons",
         "autotest_ide.ui.style",
+        "autotest_ide.ui.title_bar",
         "autotest_ide.runner.reporter",
         "autotest_ide.runner.recorder",
         "autotest_ide.runner.runtime",

@@ -7,13 +7,14 @@ from PyQt5.QtWidgets import (
     QSplitter, QTabWidget, QLabel, QComboBox,
     QStatusBar, QToolBar, QAction,
     QFileDialog, QMessageBox, QLineEdit, QDialog, QDialogButtonBox, QFormLayout,
-    QInputDialog,
+    QInputDialog, QVBoxLayout, QMenu,
 )
 
 from autotest_ide.core.log import getLogger
 from autotest_ide.ui.device_panel import DevicePanel
 from autotest_ide.ui.editor import Editor
 from autotest_ide.ui.icons import make_icon
+from autotest_ide.ui.title_bar import CustomTitleBar
 from autotest_ide.ui.tree_panel import TreePanel
 from autotest_ide.ui.property_panel import PropertyPanel
 from autotest_ide.ui.console import Console
@@ -34,6 +35,12 @@ class MainWindow(QMainWindow):
         self.resize(1280, 720)
         self.setMinimumSize(960, 540)
 
+        # Frameless window — we draw our own title bar
+        self.setWindowFlags(Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, False)
+        # Allow native resizing on Windows via hit-test
+        self.setMouseTracking(True)
+
         self._device_mgr = DeviceManager()
         self._screenshot_worker = None
         self._poco_worker = None
@@ -44,125 +51,203 @@ class MainWindow(QMainWindow):
         self._cached_root = None
         self._cached_flat = []
 
-        self._init_menubar()
+        self._init_titlebar()
+        self._build_menu()
         self._init_toolbar()
         self._init_central()
         self._init_statusbar()
         self._init_connections()
 
-    def _init_menubar(self):
-        menu = self.menuBar()
+    def _init_titlebar(self):
+        self._title_bar = CustomTitleBar(self)
+        self._title_bar.menu_requested.connect(self._show_popup_menu)
+        # Use a container widget as the central widget so we can stack
+        # title bar above the toolbar + content.
+        central = QWidget()
+        self.setCentralWidget(central)
+        outer = QVBoxLayout(central)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        outer.addWidget(self._title_bar)
 
-        file_menu = menu.addMenu("文件")
+    def _build_menu(self):
+        # Build QMenus without showing the native menuBar.
+        self._menu_file = QMenu("文件", self)
         new_action = QAction("新建", self)
         new_action.setShortcut("Ctrl+N")
         new_action.triggered.connect(self._on_new)
-        file_menu.addAction(new_action)
+        self._menu_file.addAction(new_action)
 
         open_action = QAction("打开...", self)
         open_action.setShortcut("Ctrl+O")
         open_action.triggered.connect(self._on_open)
-        file_menu.addAction(open_action)
+        self._menu_file.addAction(open_action)
 
         save_action = QAction("保存", self)
         save_action.setShortcut("Ctrl+S")
         save_action.triggered.connect(self._on_save)
-        file_menu.addAction(save_action)
+        self._menu_file.addAction(save_action)
 
-        file_menu.addSeparator()
+        self._menu_file.addSeparator()
         exit_action = QAction("退出", self)
         exit_action.setShortcut("Ctrl+Q")
         exit_action.triggered.connect(self.close)
-        file_menu.addAction(exit_action)
+        self._menu_file.addAction(exit_action)
 
-        run_menu = menu.addMenu("运行")
+        self._menu_run = QMenu("运行", self)
         run_script_action = QAction("运行脚本", self)
         run_script_action.setShortcut("F5")
         run_script_action.triggered.connect(self._on_run_clicked)
-        run_menu.addAction(run_script_action)
+        self._menu_run.addAction(run_script_action)
 
         stop_action = QAction("停止", self)
         stop_action.setShortcut("Shift+F5")
         stop_action.triggered.connect(self._on_stop_clicked)
-        run_menu.addAction(stop_action)
+        self._menu_run.addAction(stop_action)
 
-        help_menu = menu.addMenu("帮助")
+        self._menu_help = QMenu("帮助", self)
         about_action = QAction("关于", self)
         about_action.triggered.connect(self._on_about)
-        help_menu.addAction(about_action)
+        self._menu_help.addAction(about_action)
+
+        # Don't show native menu bar — it would push the title bar down.
+        self.menuBar().setVisible(False)
+
+    def _show_popup_menu(self):
+        # Pop up a top-level menu below the hamburger button.
+        btn = self._title_bar._btn_menu
+        pos = btn.mapToGlobal(btn.rect().bottomLeft())
+        # Build a combined popup so the user sees all three menus.
+        from PyQt5.QtWidgets import QMenu
+        popup = QMenu(self)
+        popup.addMenu(self._menu_file)
+        popup.addMenu(self._menu_run)
+        popup.addMenu(self._menu_help)
+        popup.exec_(pos)
 
     def _init_toolbar(self):
-        toolbar = QToolBar("主工具栏")
-        toolbar.setMovable(False)
-        toolbar.setIconSize(QSize(16, 16))
-        self.addToolBar(toolbar)
+        # Device/connection bar — a plain widget, not a QToolBar, so it
+        # sits flush below the title bar without native toolbar chrome.
+        device_bar = QWidget()
+        device_bar.setObjectName("device_bar")
+        device_bar.setFixedHeight(44)
+        layout = QHBoxLayout(device_bar)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(8)
 
-        # App branding on the left
-        title = QLabel("  AutoTest IDE")
-        title.setObjectName("toolbar_title")
-        toolbar.addWidget(title)
-        toolbar.addSeparator()
-
-        # Device section
         section_dev = QLabel("设备")
         section_dev.setObjectName("toolbar_section")
-        toolbar.addWidget(section_dev)
+        layout.addWidget(section_dev)
 
         self.device_combo = QComboBox()
         self.device_combo.setMinimumWidth(220)
-        toolbar.addWidget(self.device_combo)
+        layout.addWidget(self.device_combo)
 
-        toolbar.addWidget(QLabel("SDK"))
+        layout.addWidget(QLabel("SDK"))
         self.sdk_combo = QComboBox()
         self.sdk_combo.addItem("Poco (标准)", "poco")
         self.sdk_combo.addItem("JX4 (AltrunUnityDriver)", "jx4")
         self.sdk_combo.setMinimumWidth(200)
-        toolbar.addWidget(self.sdk_combo)
+        layout.addWidget(self.sdk_combo)
 
-        self._refresh_action = QAction(make_icon("refresh", "#89b4fa"), "刷新", self)
-        self._refresh_action.triggered.connect(self._refresh_devices)
-        toolbar.addAction(self._refresh_action)
-        toolbar.widgetForAction(self._refresh_action).setObjectName("btn_refresh")
+        self._refresh_btn = self._make_btn("refresh", "刷新", "#89b4fa", "btn_refresh")
+        self._refresh_btn.clicked.connect(self._refresh_devices)
+        layout.addWidget(self._refresh_btn)
 
-        toolbar.addSeparator()
+        layout.addSpacing(12)
 
-        # Connection section
         section_conn = QLabel("连接")
         section_conn.setObjectName("toolbar_section")
-        toolbar.addWidget(section_conn)
+        layout.addWidget(section_conn)
 
-        self._connect_action = QAction(make_icon("connect", "#a6e3a1"), "连接", self)
-        self._connect_action.triggered.connect(self._connect_selected_device)
-        toolbar.addAction(self._connect_action)
-        toolbar.widgetForAction(self._connect_action).setObjectName("btn_connect")
+        self._connect_btn = self._make_btn("connect", "连接", "#a6e3a1", "btn_connect")
+        self._connect_btn.clicked.connect(self._connect_selected_device)
+        layout.addWidget(self._connect_btn)
 
-        self._disconnect_action = QAction(make_icon("disconnect", "#f38ba8"), "断开", self)
-        self._disconnect_action.triggered.connect(self._disconnect_device)
-        toolbar.addAction(self._disconnect_action)
-        toolbar.widgetForAction(self._disconnect_action).setObjectName("btn_disconnect")
+        self._disconnect_btn = self._make_btn("disconnect", "断开", "#f38ba8", "btn_disconnect")
+        self._disconnect_btn.clicked.connect(self._disconnect_device)
+        layout.addWidget(self._disconnect_btn)
 
-        toolbar.addSeparator()
+        layout.addStretch()
 
-        # Run section
+        # Add device bar to the central outer layout (below title bar)
+        self.centralWidget().layout().addWidget(device_bar)
+
+        # Compact QToolBar for script run/stop only (right-aligned would
+        # require a stretch; we keep it simple as its own row).
+        toolbar = QToolBar("脚本")
+        toolbar.setMovable(False)
+        toolbar.setIconSize(QSize(16, 16))
+        toolbar.setObjectName("run_toolbar")
+        self.addToolBarBreak(Qt.TopToolBarArea) if False else None
+        # We add the toolbar AFTER the device bar by inserting it into
+        # the central layout instead of using QMainWindow's toolbar area.
+        # That keeps ordering: title bar → device bar → run bar → content.
+
+        run_bar = QWidget()
+        run_bar.setObjectName("run_bar")
+        run_bar.setFixedHeight(40)
+        run_layout = QHBoxLayout(run_bar)
+        run_layout.setContentsMargins(8, 0, 8, 4)
+        run_layout.setSpacing(8)
+
         section_run = QLabel("脚本")
         section_run.setObjectName("toolbar_section")
-        toolbar.addWidget(section_run)
+        run_layout.addWidget(section_run)
 
-        self.run_action = QAction(make_icon("run", "#a6e3a1"), "运行", self)
-        toolbar.addAction(self.run_action)
-        toolbar.widgetForAction(self.run_action).setObjectName("btn_run")
+        # Use QToolButton widgets so the existing QSS for #btn_run / #btn_stop applies.
+        from PyQt5.QtWidgets import QToolButton
+        self.run_btn = QToolButton()
+        self.run_btn.setIcon(make_icon("run", "#a6e3a1"))
+        self.run_btn.setText(" 运行")
+        self.run_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.run_btn.setObjectName("btn_run")
+        self.run_btn.clicked.connect(self._on_run_clicked)
+        run_layout.addWidget(self.run_btn)
 
-        self.stop_action = QAction(make_icon("stop", "#f38ba8"), "停止", self)
+        self.stop_btn = QToolButton()
+        self.stop_btn.setIcon(make_icon("stop", "#f38ba8"))
+        self.stop_btn.setText(" 停止")
+        self.stop_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.stop_btn.setObjectName("btn_stop")
+        self.stop_btn.setEnabled(False)
+        self.stop_btn.clicked.connect(self._on_stop_clicked)
+        run_layout.addWidget(self.stop_btn)
+
+        run_layout.addStretch()
+
+        self.centralWidget().layout().addWidget(run_bar)
+
+        # Keep QAction references for menu / shortcut bindings
+        self.run_action = QAction("运行脚本", self)
+        self.run_action.setShortcut("F5")
+        self.run_action.triggered.connect(self._on_run_clicked)
+        self.addAction(self.run_action)
+
+        self.stop_action = QAction("停止", self)
+        self.stop_action.setShortcut("Shift+F5")
         self.stop_action.setEnabled(False)
-        toolbar.addAction(self.stop_action)
-        toolbar.widgetForAction(self.stop_action).setObjectName("btn_stop")
+        self.stop_action.triggered.connect(self._on_stop_clicked)
+        self.addAction(self.stop_action)
+
+    @staticmethod
+    def _make_btn(icon_name: str, text: str, color: str, obj_name: str):
+        from PyQt5.QtWidgets import QToolButton
+        btn = QToolButton()
+        btn.setIcon(make_icon(icon_name, color))
+        btn.setText(" " + text)
+        btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        btn.setObjectName(obj_name)
+        return btn
 
     def _init_central(self):
-        central = QWidget()
-        self.setCentralWidget(central)
-        layout = QHBoxLayout(central)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(0)
+        # Reuse the central widget's outer layout from _init_titlebar
+        outer = self.centralWidget().layout()
+
+        content = QWidget()
+        content_layout = QHBoxLayout(content)
+        content_layout.setContentsMargins(4, 4, 4, 4)
+        content_layout.setSpacing(0)
 
         self.device_panel = DevicePanel()
         self.editor = Editor()
@@ -184,7 +269,8 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(2, 3)
         splitter.setSizes([256, 640, 384])
 
-        layout.addWidget(splitter)
+        content_layout.addWidget(splitter)
+        outer.addWidget(content, 1)
 
     def _init_statusbar(self):
         status = QStatusBar()
@@ -204,8 +290,6 @@ class MainWindow(QMainWindow):
         self._run_controller.run_started.connect(self._on_run_started)
         self._run_controller.run_finished.connect(self._on_run_finished)
         self._run_controller.run_stopped.connect(self._on_run_stopped)
-        self.run_action.triggered.connect(self._on_run_clicked)
-        self.stop_action.triggered.connect(self._on_stop_clicked)
 
     def _refresh_devices(self):
         self.device_combo.clear()
@@ -253,19 +337,31 @@ class MainWindow(QMainWindow):
         sdk_name = self.sdk_combo.currentData() or "poco"
         protocol = self._load_protocol(sdk_name)
         logger.info("Connecting device kind=%s identifier=%s sdk=%s", kind, identifier, sdk_name)
-        if kind == "android":
-            device = self._device_mgr.connect_android(serial=identifier, protocol=protocol)
-        else:
-            device = self._device_mgr.connect_local(port=identifier, protocol=protocol)
+        try:
+            if kind == "android":
+                device = self._device_mgr.connect_android(serial=identifier, protocol=protocol)
+            else:
+                device = self._device_mgr.connect_local(port=identifier, protocol=protocol)
+        except Exception as e:
+            QMessageBox.warning(self, "连接失败", f"无法连接设备\n{e}")
+            return
+
+        if device.status != "online":
+            err = device.last_error or "未知错误"
+            QMessageBox.warning(
+                self, "连接失败",
+                f"设备状态: {device.status}\n\n错误: {err}",
+            )
+            self._disconnect_device()
+            return
 
         self._device_bridge = DeviceBridge(device)
         self._device_bridge.status_changed.connect(self._on_device_status_changed)
 
-        if device.status == "online":
-            self._start_screenshot_worker(device)
-            self._cached_root = device.poco.get_root()
-            self._cached_flat = device.poco._flatten_tree(self._cached_root)
-            self.tree_panel.load_tree(self._cached_root)
+        self._start_screenshot_worker(device)
+        self._cached_root = device.poco.get_root()
+        self._cached_flat = device.poco._flatten_tree(self._cached_root)
+        self.tree_panel.load_tree(self._cached_root)
 
     def _disconnect_device(self):
         logger.info("Disconnecting device")
@@ -293,6 +389,21 @@ class MainWindow(QMainWindow):
         except ValueError:
             QMessageBox.warning(self, "格式错误", "请输入 IP:端口 格式，如 192.168.1.100:13000")
             return
+
+        # Quick TCP probe so we can give the user an immediate, specific error
+        # before going through the full Poco handshake.
+        tcp_err = self._probe_tcp(host, port)
+        if tcp_err:
+            QMessageBox.warning(
+                self, "网络不通",
+                f"无法建立 TCP 连接到 {host}:{port}\n\n{tcp_err}\n\n"
+                "请检查:\n"
+                "1. 设备和电脑是否在同一局域网\n"
+                "2. 设备上 Poco service 是否已启动 (端口 13000)\n"
+                "3. 防火墙是否放行该端口",
+            )
+            return
+
         self._disconnect_device()
         sdk_name = self.sdk_combo.currentData() or "poco"
         protocol = self._load_protocol(sdk_name)
@@ -303,11 +414,56 @@ class MainWindow(QMainWindow):
             logger.warning("IP connection failed: %s", e, exc_info=True)
             QMessageBox.warning(self, "连接失败", f"无法连接 {host}:{port}\n{e}")
             return
-        if device.status == "online":
-            self._start_screenshot_worker(device)
-            self._cached_root = device.poco.get_root()
-            self._cached_flat = device.poco._flatten_tree(self._cached_root)
-            self.tree_panel.load_tree(self._cached_root)
+
+        if device.status != "online":
+            err = device.last_error or "未知错误"
+            hint = self._diagnose_handshake_failure(err, sdk_name)
+            QMessageBox.warning(
+                self, "Poco 握手失败",
+                f"TCP 已连通 {host}:{port}，但 Poco 协议握手失败。\n\n"
+                f"错误: {err}\n\n"
+                f"{hint}",
+            )
+            self._disconnect_device()
+            return
+
+        self._device_bridge = DeviceBridge(device)
+        self._device_bridge.status_changed.connect(self._on_device_status_changed)
+        self._start_screenshot_worker(device)
+        self._cached_root = device.poco.get_root()
+        self._cached_flat = device.poco._flatten_tree(self._cached_root)
+        self.tree_panel.load_tree(self._cached_root)
+
+    @staticmethod
+    def _probe_tcp(host: str, port: int, timeout: float = 2.0) -> str:
+        """Quick TCP connect test. Returns empty string on success, error msg on failure."""
+        import socket as _socket
+        try:
+            s = _socket.create_connection((host, port), timeout=timeout)
+            s.close()
+            return ""
+        except _socket.timeout:
+            return f"连接超时 ({timeout}s) — 目标无响应"
+        except ConnectionRefusedError:
+            return "连接被拒绝 — 目标端口未监听"
+        except OSError as e:
+            return f"网络错误: {e}"
+
+    @staticmethod
+    def _diagnose_handshake_failure(err: str, sdk_name: str) -> str:
+        """Suggest likely causes based on the handshake error message."""
+        err_lower = err.lower()
+        if "handshake failed" in err_lower or "did not respond" in err_lower:
+            return (
+                "提示: TCP 通但握手超时，常见原因:\n"
+                f"  - 当前 SDK 选的是「{sdk_name}」，但设备运行的可能是另一种\n"
+                "    尝试切换 SDK (Poco ↔ JX4) 后重连\n"
+                "  - 设备上 Poco service 端口不是 13000\n"
+                "  - service 已启动但未完成初始化"
+            )
+        if "connect failed" in err_lower:
+            return "提示: TCP 层连接失败，请检查网络/防火墙"
+        return ""
 
     @staticmethod
     def _load_protocol(sdk_name: str):
@@ -483,11 +639,15 @@ class MainWindow(QMainWindow):
     def _on_run_started(self):
         self.run_action.setEnabled(False)
         self.stop_action.setEnabled(True)
+        self.run_btn.setEnabled(False)
+        self.stop_btn.setEnabled(True)
         self.device_panel.setEnabled(False)
 
     def _on_run_finished(self, exit_code: int, report_path: str):
         self.run_action.setEnabled(True)
         self.stop_action.setEnabled(False)
+        self.run_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
         self.device_panel.setEnabled(True)
         logger.info("Script finished exit_code=%d report_path=%s", exit_code, report_path)
         self.console.append_text(f"脚本结束 (exit code: {exit_code})")
@@ -506,6 +666,8 @@ class MainWindow(QMainWindow):
     def _on_run_stopped(self):
         self.run_action.setEnabled(True)
         self.stop_action.setEnabled(False)
+        self.run_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
         self.device_panel.setEnabled(True)
 
     def closeEvent(self, event):
@@ -515,3 +677,52 @@ class MainWindow(QMainWindow):
         self._stop_screenshot_worker()
         self._device_mgr.shutdown()
         super().closeEvent(event)
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == event.WindowStateChange and hasattr(self, "_title_bar"):
+            self._title_bar.update_max_button()
+
+    # ── Edge resize for frameless window ──────────────────────────
+    _RESIZE_MARGIN = 6
+
+    def _edge_at(self, pos):
+        x, y = pos.x(), pos.y()
+        w, h = self.width(), self.height()
+        m = self._RESIZE_MARGIN
+        on_left = x < m
+        on_right = x >= w - m
+        on_top = y < m
+        on_bottom = y >= h - m
+        if on_top and on_left:     return Qt.TopLeftCorner
+        if on_top and on_right:    return Qt.TopRightCorner
+        if on_bottom and on_left:  return Qt.BottomLeftCorner
+        if on_bottom and on_right: return Qt.BottomRightCorner
+        if on_left:   return Qt.LeftEdge
+        if on_right:  return Qt.RightEdge
+        if on_top:    return Qt.TopEdge
+        if on_bottom: return Qt.BottomEdge
+        return None
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            edge = self._edge_at(event.pos())
+            if edge is not None:
+                # Use native Win32 hit-test resize: query the window handle
+                import ctypes
+                from ctypes import wintypes
+                hwnd = int(self.winId())
+                resize_map = {
+                    Qt.TopLeftCorner: 13, Qt.TopEdge: 12, Qt.TopRightCorner: 14,
+                    Qt.RightEdge: 11, Qt.BottomRightCorner: 17,
+                    Qt.BottomEdge: 15, Qt.BottomLeftCorner: 16, Qt.LeftEdge: 10,
+                }
+                code = resize_map.get(edge)
+                if code:
+                    ctypes.windll.user32.ReleaseCapture()
+                    ctypes.windll.user32.SendMessageW(
+                        hwnd, 0xA1, code, 0,
+                    )
+                    event.accept()
+                    return
+        super().mousePressEvent(event)

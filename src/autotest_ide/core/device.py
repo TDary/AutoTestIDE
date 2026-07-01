@@ -28,6 +28,7 @@ class Device:
         self._heartbeat_failures = 0
         self._on_status_change: Callable[[str], None] = lambda s: None
         self._lock = threading.Lock()
+        self._last_error: Optional[str] = None
 
     @property
     def name(self) -> str:
@@ -40,6 +41,10 @@ class Device:
     @property
     def status(self) -> str:
         return self._status
+
+    @property
+    def last_error(self) -> Optional[str]:
+        return self._last_error
 
     @property
     def poco(self) -> PocoClient:
@@ -72,18 +77,22 @@ class Device:
 
     def _do_connect(self) -> None:
         self._set_status("connecting")
+        self._last_error = None
         try:
             self._forwarder.start()
-        except ForwarderError:
-            logger.warning("Device %s: forwarder start failed", self._name, exc_info=True)
+        except ForwarderError as e:
+            self._last_error = f"端口转发失败: {e}"
+            logger.warning("Device %s: forwarder start failed: %s", self._name, e, exc_info=True)
             self._set_status("offline")
             return
         host = getattr(self._forwarder, "host", "127.0.0.1")
         poco = PocoClient(host=host, port=self._forwarder.local_port, protocol=self._protocol)
         try:
             poco.connect()
-        except PocoConnectionError:
-            logger.warning("Device %s: poco connect failed on port %d", self._name, self._forwarder.local_port, exc_info=True)
+        except PocoConnectionError as e:
+            self._last_error = str(e)
+            logger.warning("Device %s: poco connect failed on %s:%d: %s",
+                           self._name, host, self._forwarder.local_port, e, exc_info=True)
             try:
                 self._forwarder.stop()
             except Exception:

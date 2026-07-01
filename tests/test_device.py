@@ -41,6 +41,24 @@ def test_device_connect_failure_transitions_to_offline():
     assert device.status == "offline"
 
 
+def test_device_connect_failure_records_last_error():
+    device = make_local_device(1)
+    device.connect()
+    assert device.status == "offline"
+    assert device.last_error is not None
+    assert "connect failed" in device.last_error.lower() or "connection refused" in device.last_error.lower()
+
+
+def test_device_connect_success_clears_last_error(fake_server):
+    device = make_local_device(fake_server.port)
+    device.connect()
+    try:
+        assert device.status == "online"
+        assert device.last_error is None
+    finally:
+        device.disconnect()
+
+
 def test_device_connect_when_not_disconnected_raises(fake_server):
     device = make_local_device(fake_server.port)
     device.connect()
