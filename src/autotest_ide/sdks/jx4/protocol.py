@@ -1,22 +1,25 @@
 """JX4 AltrunUnityDriver protocol adapter.
 
-Wire format
-----------
+Wire format (see docs/jx4/AltrunUnityDriver接口协议文档.md)
+---------------------------------------------------------
 Request::
 
     CommandName;arg1;arg2;...;argN;&
 
 - Fields separated by semicolon ``;``
-- Terminated by ``&``
-- No length-prefix on requests
+- Terminated by ``;&``
 
 Response::
 
-    payload_bytes &
+    altstart::<payload>::altLog::<log>::altend
 
-- Read until ``&`` terminator (byte-by-byte recv)
-- Decode as UTF-8 string
-- Screenshot responses are base64-encoded PNG
+- Read until ``::altend`` suffix (loop recv, accumulate buffer)
+- Decode as UTF-8
+- Strip the ``altstart::`` prefix and ``::altend`` suffix
+- Split on ``::altLog::`` to separate payload from Unity log
+- payload may be JSON, plain string, or base64 (screenshots)
+- If response doesn't start with ``altstart::`` or contain ``::altend``,
+  return empty string (per spec §2.2 "异常情况")
 """
 
 from __future__ import annotations
@@ -37,6 +40,10 @@ TERMINATOR = "&"
 DEFAULT_PORT = 13000
 MAX_PORT_RETRIES = 5
 
+RESPONSE_PREFIX = "altstart::"
+RESPONSE_SUFFIX = "::altend"
+RESPONSE_LOG_SEP = "::altLog::"
+
 
 # ── wire-level helpers ──────────────────────────────────────────────
 
@@ -55,19 +62,38 @@ def _encode_request(method: str, args: tuple, kwargs: dict) -> bytes:
 
 
 def _read_response(sock: socket.socket) -> str:
-    """Read one response frame terminated by ``&``.
+    """Read one JX4 response frame.
 
-    Returns the decoded UTF-8 string **without** the trailing ``&``.
+    Reads until the buffer ends with ``::altend`` (per spec §2.2),
+    then strips the ``altstart::`` prefix and ``::altend`` suffix,
+    and returns only the payload (without the ``::altLog::`` log part).
+
+    Returns empty string if the response is malformed.
     """
     buf = b""
-    while not buf.endswith(b"&"):
-        chunk = sock.recv(1)
+    while not buf.endswith(b"::altend"):
+        chunk = sock.recv(4096)
         if not chunk:
             raise PocoConnectionError("connection closed")
         buf += chunk
-    text = buf.decode("utf-8")
-    # strip trailing & and any whitespace
-    return text.rstrip("&").strip()
+        # Safety cap: avoid unbounded buffering if a malformed server
+        # never sends ::altend. 16 MB is well above any sane screenshot.
+        if len(buf) > 16 * 1024 * 1024:
+            raise PocoProtocolError("response too large without ::altend")
+    text = buf.decode("utf-8", errors="replace")
+    # Extract payload: altstart::<payload>::altLog::<log>::altend
+    if RESPONSE_PREFIX not in text or RESPONSE_SUFFIX not in text:
+        logger.warning("Malformed JX4 response (missing altstart/altend): %r", text[:200])
+        return ""
+    # Strip prefix + suffix
+    inner = text.split(RESPONSE_PREFIX, 1)[1]
+    inner = inner.rsplit(RESPONSE_SUFFIX, 1)[0]
+    # Split off the log part if present
+    if RESPONSE_LOG_SEP in inner:
+        payload, _log = inner.split(RESPONSE_LOG_SEP, 1)
+    else:
+        payload = inner
+    return payload.strip()
 
 
 def _parse_json_response(raw: str) -> Any:
@@ -87,14 +113,17 @@ class JX4Protocol(PocoProtocol):
     """AltrunUnityDriver protocol (semicolon-separated, &-terminated)."""
 
     # Map our public API names to JX4 command names.
+    # See docs/jx4/AltrunUnityDriver接口协议文档.md §9
     METHOD_MAP = {
-        "dump_hierarchy": "getUiautatorTree",
-        "get_attributes": "getNodeAttrById",
+        "dump_hierarchy": "getHierarchy",
+        "get_attributes": "getInspector",
         "inspect_by_point": "getNodeByPos",
         "click": "tap",
         "set_text": "setText",
-        "screenshot": "screenshot",
         "get_server_version": "getServerVersion",
+        # getScreen returns screen size JSON, not pixel data.
+        # JX4 screenshots are async via ProfilingMemory + local file read.
+        "screenshot": "getScreen",
     }
 
     # ── PocoProtocol interface ──────────────────────────────────
@@ -132,6 +161,18 @@ class JX4Protocol(PocoProtocol):
                 raise PocoProtocolError(f"invalid base64 screenshot: {e}")
         return _parse_json_response(raw)
 
+    def before_close(self, sock: socket.socket) -> None:
+        """Send ``CloseConnection`` farewell before socket close.
+
+        Mirrors ``AltrunUnityDriver.stop()`` in docs/jx4/runner.py line 82.
+        Best-effort — errors are swallowed by the caller.
+        """
+        try:
+            data = _encode_request("CloseConnection", (), {})
+            sock.sendall(data)
+        except OSError:
+            pass
+
     def handshake(self, client: Any) -> str | None:
         from autotest_ide.core.errors import PocoTimeoutError
 
@@ -154,22 +195,44 @@ class JX4Protocol(PocoProtocol):
         host: str = "127.0.0.1",
         start_port: int = DEFAULT_PORT,
         timeout: float = 60.0,
+        connect_timeout: float = 5.0,
     ) -> tuple[socket.socket, int]:
         """Try ports start_port … start_port+MAX_PORT_RETRIES-1.
+
+        Mirrors ``AltrunUnityDriver.__init__`` in docs/jx4/runner.py:
+        - ``socket.socket(AF_INET, SOCK_STREAM)``
+        - ``connect((host, port))`` with a short timeout
+        - on ``ConnectionRefusedError``, bump port and retry (up to 5 times)
+        - on success, ``settimeout(timeout)`` for the subsequent handshake
 
         Returns (connected_socket, actual_port).
         Raises ``PocoConnectionError`` if all ports fail.
         """
-        for offset in range(MAX_PORT_RETRIES):
-            port = start_port + offset
+        last_err: Exception | None = None
+        port = start_port
+        for _ in range(MAX_PORT_RETRIES):
             try:
-                sock = socket.create_connection((host, port), timeout=5)
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(connect_timeout)
+                sock.connect((host, port))
+                # Match runner.py: long timeout for handshake + slow commands
                 sock.settimeout(timeout)
+                logger.info("JX4 connected to %s:%d", host, port)
                 return sock, port
-            except OSError:
+            except ConnectionRefusedError as e:
+                last_err = e
+                logger.debug("JX4 connect refused on %s:%d, trying %d",
+                             host, port, port + 1)
+                port += 1
+                continue
+            except OSError as e:
+                last_err = e
+                logger.debug("JX4 connect failed on %s:%d: %s", host, port, e)
+                port += 1
                 continue
         raise PocoConnectionError(
-            f"AltrunUnityDriver not found on {host}:{start_port}-{start_port + MAX_PORT_RETRIES - 1}"
+            f"AltrunUnityDriver not found on {host}:{start_port}-"
+            f"{start_port + MAX_PORT_RETRIES - 1}: {last_err}"
         )
 
     # ── JX4-specific helpers ─────────────────────────────────────

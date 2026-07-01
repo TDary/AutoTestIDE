@@ -61,7 +61,9 @@ class PocoClient:
             )
             self._sock = sock
             self._port = actual_port
-            self._sock.settimeout(None)
+            # Keep the protocol's timeout (e.g. JX4 sets 60s) active during
+            # handshake so a slow server doesn't hang forever. The recv loop
+            # below switches to blocking mode after handshake succeeds.
             self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
             if hasattr(socket, "SIO_KEEPALIVE_VALS"):
                 self._sock.ioctl(socket.SIO_KEEPALIVE_VALS, (1, 10000, 3000))
@@ -72,6 +74,9 @@ class PocoClient:
         self._recv_thread = threading.Thread(target=self._recv_loop, daemon=True)
         self._recv_thread.start()
         self._handshake()
+        # After handshake, switch to blocking mode for the recv loop.
+        # The protocol's read_response() does blocking recv() calls.
+        self._sock.settimeout(None)
         logger.info("PocoClient connected %s:%d version=%s",
                      self._host, self._port, self.server_version)
 
@@ -84,6 +89,12 @@ class PocoClient:
         with self._pending_cond:
             self._pending_cond.notify_all()
         if self._sock is not None:
+            # Let the protocol send a farewell command (e.g. JX4 CloseConnection)
+            # before we close the socket. Best-effort — never block on errors.
+            try:
+                self._protocol.before_close(self._sock)
+            except Exception:
+                logger.debug("before_close hook failed", exc_info=True)
             try:
                 self._sock.close()
             except OSError:

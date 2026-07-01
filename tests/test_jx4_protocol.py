@@ -35,9 +35,9 @@ def test_encode_request_bool_true():
 
 def test_method_map():
     p = JX4Protocol()
-    assert p.resolve_method("dump_hierarchy") == "getUiautatorTree"
+    assert p.resolve_method("dump_hierarchy") == "getHierarchy"
     assert p.resolve_method("click") == "tap"
-    assert p.resolve_method("screenshot") == "screenshot"
+    assert p.resolve_method("screenshot") == "getScreen"
     assert p.resolve_method("get_server_version") == "getServerVersion"
     # Unknown passes through
     assert p.resolve_method("customThing") == "customThing"
@@ -45,7 +45,8 @@ def test_method_map():
 
 def test_read_response_string():
     server, client = socket.socketpair()
-    server.sendall(b"1.0.0&")
+    # JX4 wraps payloads in altstart::...::altend
+    server.sendall(b"altstart::1.0.0::altLog::::altend")
     server.close()
     result = _read_response(client)
     assert result == "1.0.0"
@@ -53,7 +54,7 @@ def test_read_response_string():
 
 def test_read_response_json():
     server, client = socket.socketpair()
-    payload = '{"node_id":"root"}&'
+    payload = 'altstart::{"node_id":"root"}::altLog::::altend'
     server.sendall(payload.encode("utf-8"))
     server.close()
     result = _read_response(client)
@@ -81,12 +82,13 @@ def test_parse_json_response_empty():
 
 def test_screenshot_decodes_base64():
     p = JX4Protocol()
-    # Simulate a base64 PNG response
+    # Simulate a base64 PNG response wrapped in JX4 envelope
     fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
     b64 = base64.b64encode(fake_png).decode("ascii")
+    envelope = f"altstart::{b64}::altLog::::altend".encode("ascii")
 
     server, client = socket.socketpair()
-    server.sendall(b64.encode("ascii") + b"&")
+    server.sendall(envelope)
     server.close()
 
     result = p.read_response(client, expect_binary=True)

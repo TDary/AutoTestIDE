@@ -145,9 +145,11 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(QLabel("SDK"))
         self.sdk_combo = QComboBox()
-        self.sdk_combo.addItem("Poco (标准)", "poco")
-        self.sdk_combo.addItem("JX4 (AltrunUnityDriver)", "jx4")
         self.sdk_combo.setMinimumWidth(200)
+        # Populate from the central registry so new SDKs show up automatically.
+        from autotest_ide.sdks import PROTOCOL_REGISTRY
+        for name in PROTOCOL_REGISTRY:
+            self.sdk_combo.addItem(name, name)
         layout.addWidget(self.sdk_combo)
 
         self._refresh_btn = self._make_btn("refresh", "刷新", "#89b4fa", "btn_refresh")
@@ -334,7 +336,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "无法连接", f"设备状态为 {state}，请先在手机上允许USB调试授权。")
             return
         self._disconnect_device()
-        sdk_name = self.sdk_combo.currentData() or "poco"
+        sdk_name = self.sdk_combo.currentData() or "jx4"
         protocol = self._load_protocol(sdk_name)
         logger.info("Connecting device kind=%s identifier=%s sdk=%s", kind, identifier, sdk_name)
         try:
@@ -405,7 +407,7 @@ class MainWindow(QMainWindow):
             return
 
         self._disconnect_device()
-        sdk_name = self.sdk_combo.currentData() or "poco"
+        sdk_name = self.sdk_combo.currentData() or "jx4"
         protocol = self._load_protocol(sdk_name)
         logger.info("Connecting IP device host=%s port=%d sdk=%s", host, port, sdk_name)
         try:
@@ -467,23 +469,24 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _load_protocol(sdk_name: str):
-        from autotest_ide.runner.runtest import PROTOCOL_REGISTRY
+        from autotest_ide.sdks import PROTOCOL_REGISTRY
         import importlib
         if sdk_name in PROTOCOL_REGISTRY:
             spec = PROTOCOL_REGISTRY[sdk_name]
             module_path, class_name = spec.rsplit(":", 1)
             mod = importlib.import_module(module_path)
             return getattr(mod, class_name)()
-        # fallback: try sdks package
+        # fallback: try sdks package by name
         try:
-            mod = importlib.import_module(f"autotest_ide.sdks.{sdk_name}")
+            mod = importlib.import_module(f"autotest_ide.sdks.{sdk_name}.protocol")
             cls = getattr(mod, f"{sdk_name.upper()}Protocol", None)
             if cls:
                 return cls()
         except (ImportError, AttributeError):
             pass
-        from autotest_ide.core.protocol_poco import PocoTextProtocol
-        return PocoTextProtocol()
+        # final fallback: jx4
+        from autotest_ide.sdks.jx4.protocol import JX4Protocol
+        return JX4Protocol()
 
     def _start_screenshot_worker(self, device):
         self._stop_screenshot_worker()
@@ -503,7 +506,7 @@ class MainWindow(QMainWindow):
             if not self._screenshot_worker:
                 self._start_screenshot_worker(device)
             if device.poco:
-                sdk = self.sdk_combo.currentData() or "poco"
+                sdk = self.sdk_combo.currentData() or "jx4"
                 self.status_protocol.setText(f"  协议: {device.poco.protocol_version or '-'} ({sdk})  ")
         elif status == "offline":
             self._stop_screenshot_worker()
@@ -624,7 +627,7 @@ class MainWindow(QMainWindow):
         if ret != QMessageBox.Yes:
             return
         air_dir = "test.air"
-        sdk = self.sdk_combo.currentData() or "poco"
+        sdk = self.sdk_combo.currentData() or "jx4"
         logger.info("Running script air_dir=%s device=%s:%s poco_port=%d sdk=%s",
                      air_dir, device.device_type, device.name, device.poco.port, sdk)
         self._run_controller.start(

@@ -52,7 +52,6 @@ a = Analysis(
         "autotest_ide.runner.runtime",
         "autotest_ide.report",
         "autotest_ide.sdks",
-        "autotest_ide.sdks.poco",
         "autotest_ide.sdks.jx4",
         "autotest_ide.sdks.jx4.protocol",
         "PyQt5.QtWebEngineWidgets",

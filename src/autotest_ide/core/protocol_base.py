@@ -86,3 +86,11 @@ class PocoProtocol(ABC):
         """
         sock = socket.create_connection((host, port), timeout=timeout)
         return sock, port
+
+    def before_close(self, sock: socket.socket) -> None:
+        """Hook called before the socket is closed.
+
+        Default: no-op. Protocols that need to send a farewell command
+        (e.g. JX4's ``CloseConnection``) override this.
+        """
+        return None

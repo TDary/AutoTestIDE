@@ -15,33 +15,29 @@ from pathlib import Path
 from autotest_ide.core.log import getLogger, setup_logging
 from autotest_ide.core.poco_client import PocoClient
 from autotest_ide.core.protocol_base import PocoProtocol
-from autotest_ide.core.protocol_poco import PocoTextProtocol
 from autotest_ide.runner.recorder import RecordingPocoClient
 from autotest_ide.runner.reporter import Reporter
 from autotest_ide.runner.runtime import build_namespace
+from autotest_ide.sdks import PROTOCOL_REGISTRY
 
 logger = getLogger(__name__)
 
-PROTOCOL_REGISTRY = {
-    "poco": "autotest_ide.core.protocol_poco:PocoTextProtocol",
-    "jx4": "autotest_ide.sdks.jx4.protocol:JX4Protocol",
-}
-
 
 def _load_protocol(spec: str) -> PocoProtocol:
-    """Load a protocol class from a ``package.module:ClassName`` spec."""
+    """Load a protocol class from a ``package.module:ClassName`` spec.
+
+    Accepts either a registry short name (e.g. ``"jx4"``) or a fully
+    qualified ``package.module:ClassName`` spec.
+    """
     if ":" in spec:
         module_path, class_name = spec.rsplit(":", 1)
+    elif spec in PROTOCOL_REGISTRY:
+        full_spec = PROTOCOL_REGISTRY[spec]
+        module_path, class_name = full_spec.rsplit(":", 1)
     else:
-        # short name → look up in registry
-        class_name = spec
-        module_path = None
-        if spec in PROTOCOL_REGISTRY:
-            full_spec = PROTOCOL_REGISTRY[spec]
-            module_path, class_name = full_spec.rsplit(":", 1)
-        else:
-            # try sdks package
-            module_path = f"autotest_ide.sdks.{spec}.protocol"
+        # try sdks package by name
+        module_path = f"autotest_ide.sdks.{spec}.protocol"
+        class_name = spec.upper() + "Protocol"
     mod = importlib.import_module(module_path)
     cls = getattr(mod, class_name)
     return cls()
@@ -60,7 +56,7 @@ def main():
     parser.add_argument("--device-serial", default="", help="Device serial")
     parser.add_argument("--poco-port", type=int, default=13000, help="Poco service port")
     parser.add_argument("--timeout", type=int, default=600, help="Overall timeout in seconds")
-    parser.add_argument("--protocol", default="poco",
+    parser.add_argument("--protocol", default="jx4",
                         help="Protocol adapter name or package.module:Class spec")
     args = parser.parse_args()
 
@@ -76,12 +72,12 @@ def main():
         logger.error("Script not found: %s", script_path)
         sys.exit(1)
 
-    # Load protocol adapter
+    # Load protocol adapter — fall back to jx4 on failure
     try:
         protocol = _load_protocol(args.protocol)
     except Exception as e:
         logger.error("Failed to load protocol %r: %s", args.protocol, e)
-        protocol = PocoTextProtocol()
+        protocol = _load_protocol("jx4")
 
     # Setup timeout: POSIX uses SIGALRM, Windows uses watchdog thread
     if hasattr(signal, "SIGALRM"):
