@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout,
     QSplitter, QTabWidget, QLabel, QComboBox,
     QStatusBar, QToolBar, QAction,
+    QFileDialog, QMessageBox,
 )
 
 from autotest_ide.core.log import getLogger
@@ -36,6 +37,7 @@ class MainWindow(QMainWindow):
         self._device_bridge = None
         self._run_controller = RunController(self)
         self._report_view = None
+        self._current_file = None
 
         self._init_menubar()
         self._init_toolbar()
@@ -45,18 +47,44 @@ class MainWindow(QMainWindow):
 
     def _init_menubar(self):
         menu = self.menuBar()
+
         file_menu = menu.addMenu("文件")
-        file_menu.addAction("新建")
-        file_menu.addAction("打开")
+        new_action = QAction("新建", self)
+        new_action.setShortcut("Ctrl+N")
+        new_action.triggered.connect(self._on_new)
+        file_menu.addAction(new_action)
+
+        open_action = QAction("打开...", self)
+        open_action.setShortcut("Ctrl+O")
+        open_action.triggered.connect(self._on_open)
+        file_menu.addAction(open_action)
+
+        save_action = QAction("保存", self)
+        save_action.setShortcut("Ctrl+S")
+        save_action.triggered.connect(self._on_save)
+        file_menu.addAction(save_action)
+
         file_menu.addSeparator()
-        file_menu.addAction("退出")
+        exit_action = QAction("退出", self)
+        exit_action.setShortcut("Ctrl+Q")
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
 
         run_menu = menu.addMenu("运行")
-        run_menu.addAction("运行脚本")
-        run_menu.addAction("停止")
+        run_script_action = QAction("运行脚本", self)
+        run_script_action.setShortcut("F5")
+        run_script_action.triggered.connect(self._on_run_clicked)
+        run_menu.addAction(run_script_action)
+
+        stop_action = QAction("停止", self)
+        stop_action.setShortcut("Shift+F5")
+        stop_action.triggered.connect(self._on_stop_clicked)
+        run_menu.addAction(stop_action)
 
         help_menu = menu.addMenu("帮助")
-        help_menu.addAction("关于")
+        about_action = QAction("关于", self)
+        about_action.triggered.connect(self._on_about)
+        help_menu.addAction(about_action)
 
     def _init_toolbar(self):
         toolbar = QToolBar("主工具栏")
@@ -268,6 +296,61 @@ class MainWindow(QMainWindow):
             nodes.extend(self._flatten_tree(child))
         return nodes
 
+    def _check_unsaved(self) -> bool:
+        if self.editor.document().isModified():
+            ret = QMessageBox.question(
+                self, "未保存", "当前内容未保存，是否保存？",
+                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+            )
+            if ret == QMessageBox.Save:
+                self._on_save()
+                if self.editor.document().isModified():
+                    return False
+            elif ret == QMessageBox.Cancel:
+                return False
+        return True
+
+    def _on_new(self):
+        if not self._check_unsaved():
+            return
+        self.editor.clear()
+        self.editor.setPlaceholderText("# 在此编写自动化脚本\npoco('Button_Play').click()")
+        self._current_file = None
+        self.editor.document().setModified(False)
+
+    def _on_open(self):
+        if not self._check_unsaved():
+            return
+        path, _ = QFileDialog.getOpenFileName(self, "打开脚本", "", "Python 文件 (*.py);;所有文件 (*)")
+        if path:
+            try:
+                content = Path(path).read_text(encoding="utf-8")
+                self.editor.setPlainText(content)
+                self._current_file = path
+                self.editor.document().setModified(False)
+                logger.info("Opened file: %s", path)
+            except Exception as e:
+                QMessageBox.warning(self, "打开失败", str(e))
+
+    def _on_save(self):
+        path = getattr(self, "_current_file", None)
+        if not path:
+            path, _ = QFileDialog.getSaveFileName(self, "保存脚本", "", "Python 文件 (*.py);;所有文件 (*)")
+        if path:
+            try:
+                Path(path).write_text(self.editor.toPlainText(), encoding="utf-8")
+                self._current_file = path
+                self.editor.document().setModified(False)
+                logger.info("Saved file: %s", path)
+            except Exception as e:
+                QMessageBox.warning(self, "保存失败", str(e))
+
+    def _on_about(self):
+        QMessageBox.about(self, "关于 AutoTest IDE",
+                          "AutoTest IDE v1.0\n\n"
+                          "基于 Poco 协议的 UI 自动化测试 IDE\n"
+                          "使用 PyQt5 构建")
+
     def _on_run_clicked(self):
         device = self._device_mgr.active
         if not device or device.status != "online":
@@ -314,6 +397,9 @@ class MainWindow(QMainWindow):
         self.device_panel.setEnabled(True)
 
     def closeEvent(self, event):
+        if not self._check_unsaved():
+            event.ignore()
+            return
         self._stop_screenshot_worker()
         self._device_mgr.shutdown()
         super().closeEvent(event)
