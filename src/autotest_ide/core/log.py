@@ -6,11 +6,11 @@ from pathlib import Path
 
 
 def _log_dir() -> Path:
-    if sys.platform == "win32":
-        base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+    if getattr(sys, "frozen", False):
+        base = Path(sys.executable).parent
     else:
-        base = Path.home() / ".local" / "share"
-    d = base / "AutoTest IDE"
+        base = Path(__file__).resolve().parent.parent.parent
+    d = base / "logs"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
