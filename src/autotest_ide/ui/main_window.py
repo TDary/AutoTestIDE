@@ -166,8 +166,10 @@ class MainWindow(QMainWindow):
 
     def _refresh_devices(self):
         self.device_combo.clear()
+        adb_ok = False
         try:
             android = self._device_mgr.list_android_devices()
+            adb_ok = True
             for d in android:
                 state = d.get("state", "device")
                 label = f"{d['serial']} ({d.get('model', 'unknown')})"
@@ -179,7 +181,7 @@ class MainWindow(QMainWindow):
                 self.device_combo.addItem(label, ("android", d["serial"], state))
         except Exception as e:
             logger.warning("Failed to refresh android devices", exc_info=True)
-            self.console.append_text(f"刷新安卓设备失败: {e}", is_error=True)
+            self.device_combo.addItem("安卓设备: ADB连接失败，请检查USB和adb", None)
         try:
             local = self._device_mgr.list_local_devices()
             for d in local:

@@ -80,7 +80,17 @@ class AdbForwarder(PortForwarder):
             raise ForwarderError("forwarder not started")
         return self._local_port
 
+    def _ensure_adb_server(self) -> None:
+        """Kill stale ADB daemon and restart it."""
+        for cmd in [self._adb_path + ["kill-server"],
+                     self._adb_path + ["start-server"]]:
+            try:
+                subprocess.run(cmd, capture_output=True, timeout=5, text=True)
+            except (OSError, subprocess.TimeoutExpired):
+                logger.debug("adb command %s failed (non-fatal)", cmd)
+
     def start(self) -> None:
+        self._ensure_adb_server()
         cmd = self._adb_path + [
             "-s", self._device_serial,
             "forward", "tcp:0", f"tcp:{self._remote_port}",
@@ -88,7 +98,7 @@ class AdbForwarder(PortForwarder):
         logger.info("AdbForwarder start: %s", " ".join(cmd))
         try:
             result = subprocess.run(
-                cmd, capture_output=True, timeout=5, text=True,
+                cmd, capture_output=True, timeout=10, text=True,
             )
         except (OSError, subprocess.TimeoutExpired) as e:
             raise ForwarderError(f"adb forward failed: {e}") from e
