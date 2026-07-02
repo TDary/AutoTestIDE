@@ -21,7 +21,7 @@ class PythonHighlighter(QSyntaxHighlighter):
 
         builtin_fmt = QTextCharFormat()
         builtin_fmt.setForeground(QColor("#fab387"))
-        builtins = ["poco", "print", "range", "len", "int", "str", "float", "list", "dict", "set", "tuple"]
+        builtins = ["auto", "print", "range", "len", "int", "str", "float", "list", "dict", "set", "tuple"]
         for b in builtins:
             self._rules.append((QRegularExpression(r"\b" + b + r"\b"), builtin_fmt))
 
@@ -50,7 +50,7 @@ class PythonHighlighter(QSyntaxHighlighter):
 class Editor(QPlainTextEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setPlaceholderText("# 在此编写自动化脚本\npoco('Button_Play').click()")
+        self.setPlaceholderText("# 在此编写自动化脚本\nauto.find_and_tap('Button_Play')")
         font = QFont("Consolas", 11)
         font.setStyleHint(QFont.Monospace)
         self.setFont(font)

@@ -298,6 +298,7 @@ class MainWindow(QMainWindow):
     def _init_connections(self):
         self.device_panel.inspect_requested.connect(self._on_inspect_requested)
         self.tree_panel.selectionModel().selectionChanged.connect(self._on_tree_selection_changed)
+        self.tree_panel.insert_code_requested.connect(self._on_insert_code_from_tree)
         self._run_controller.output_received.connect(
             lambda text, is_err: self.console.append_text(text, is_err)
         )
@@ -551,7 +552,10 @@ class MainWindow(QMainWindow):
         if not device or device.status != "online":
             return
         self.status_coords.setText(f"  坐标: ({x}, {y})  ")
-        self.editor.insert_locator_code(f"poco.click({x}, {y})\n")
+        self.editor.insert_locator_code(f"auto.click({x}, {y})\n")
+
+    def _on_insert_code_from_tree(self, path: str):
+        self.editor.insert_locator_code(f"auto.find_and_tap('{path}')\n")
 
     def _on_refresh_tree(self):
         device = self._device_mgr.active

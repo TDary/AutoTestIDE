@@ -1,9 +1,10 @@
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QStandardItemModel, QStandardItem
 from PyQt5.QtWidgets import QTreeView, QMenu, QApplication
 
 
 class TreePanel(QTreeView):
+    insert_code_requested = pyqtSignal(str)
     def __init__(self, parent=None):
         super().__init__(parent)
         self._model = QStandardItemModel(self)
@@ -80,7 +81,10 @@ class TreePanel(QTreeView):
         path = self._get_node_path(index)
         menu = QMenu(self)
         copy_action = menu.addAction(f"复制路径: {path}")
+        insert_action = menu.addAction(f"插入点击代码: {path}")
         action = menu.exec_(self.viewport().mapToGlobal(pos))
         if action == copy_action:
             clipboard = QApplication.clipboard()
             clipboard.setText(path)
+        elif action == insert_action:
+            self.insert_code_requested.emit(path)

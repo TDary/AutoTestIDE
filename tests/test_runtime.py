@@ -3,12 +3,12 @@ from unittest.mock import MagicMock
 from autotest_ide.runner.runtime import build_namespace
 
 
-def test_namespace_has_poco():
+def test_namespace_has_auto():
     recorder = MagicMock()
     reporter = MagicMock()
     ns = build_namespace(recorder, reporter)
-    assert "poco" in ns
-    assert ns["poco"] is recorder
+    assert "auto" in ns
+    assert ns["auto"] is recorder
 
 
 def test_namespace_has_snapshot():

@@ -36,7 +36,7 @@ def build_namespace(poco: RecordingPocoClient, reporter: Reporter) -> dict:
         reporter.step_pass()
 
     return {
-        "poco": poco,
+        "auto": poco,
         "By": By,
         "snapshot": snapshot,
         "assert_exists": assert_exists,
