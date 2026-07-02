@@ -4,13 +4,14 @@ import socket
 
 import pytest
 
-from autotest_ide.core.errors import PocoConnectionError
+from autotest_ide.core.errors import PocoConnectionError, PocoProtocolError
 from autotest_ide.sdks.jx4.protocol import (
     JX4Protocol,
     _encode_request,
     _read_response,
     _parse_json_response,
     _convert_jx4_node,
+    _path_to_node,
 )
 
 
@@ -178,6 +179,42 @@ def test_transform_result_passthrough():
     p = JX4Protocol()
     assert p.transform_result("click", {"ok": True}) == {"ok": True}
     assert p.transform_result("dump_hierarchy", "not a dict") == "not a dict"
+
+
+def test_transform_result_inspect_by_point_path():
+    p = JX4Protocol()
+    result = p.transform_result("inspect_by_point", "A/B/C")
+    assert isinstance(result, dict)
+    assert result["name"] == "C"
+    assert result["payload"]["path"] == "A/B/C"
+    assert result["node_id"] == "A/B/C"
+
+
+def test_path_to_node():
+    node = _path_to_node("Panel/BtnStart")
+    assert node["name"] == "BtnStart"
+    assert node["payload"]["path"] == "Panel/BtnStart"
+    assert node["children"] == []
+
+
+def test_path_to_node_single():
+    node = _path_to_node("Root")
+    assert node["name"] == "Root"
+    assert node["payload"]["path"] == "Root"
+
+
+def test_transform_result_inspect_by_point_error():
+    p = JX4Protocol()
+    err = "error:exceptionOccur System.Collections.Generic.KeyNotFoundException"
+    with pytest.raises(PocoProtocolError, match="KeyNotFoundException"):
+        p.transform_result("inspect_by_point", err)
+
+
+def test_transform_result_inspect_by_point_exception_in_string():
+    p = JX4Protocol()
+    err = "Something went wrong: NullReferenceException at Foo"
+    with pytest.raises(PocoProtocolError):
+        p.transform_result("inspect_by_point", err)
 
 
 def test_convert_jx4_node_text_in_payload():

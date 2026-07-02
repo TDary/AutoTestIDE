@@ -281,6 +281,50 @@ QToolButton#btn_stop:disabled {
     border: 1px solid #313244;
 }
 
+QToolButton#btn_record {
+    background-color: rgba(249, 226, 175, 0.22);
+    color: #f9e2af;
+    border: 1px solid rgba(249, 226, 175, 0.7);
+    padding: 6px 16px;
+    border-radius: 5px;
+    font-size: 13px;
+    font-weight: bold;
+}
+QToolButton#btn_record:hover {
+    background-color: rgba(249, 226, 175, 0.4);
+    border: 1px solid #f9e2af;
+}
+QToolButton#btn_record:pressed {
+    background-color: rgba(249, 226, 175, 0.55);
+}
+QToolButton#btn_record:disabled {
+    background-color: #181825;
+    color: #45475a;
+    border: 1px solid #313244;
+}
+
+QToolButton#btn_stop_record {
+    background-color: rgba(108, 112, 134, 0.22);
+    color: #6c7086;
+    border: 1px solid rgba(108, 112, 134, 0.7);
+    padding: 6px 16px;
+    border-radius: 5px;
+    font-size: 13px;
+    font-weight: bold;
+}
+QToolButton#btn_stop_record:hover {
+    background-color: rgba(108, 112, 134, 0.4);
+    border: 1px solid #6c7086;
+}
+QToolButton#btn_stop_record:pressed {
+    background-color: rgba(108, 112, 134, 0.55);
+}
+QToolButton#btn_stop_record:disabled {
+    background-color: #181825;
+    color: #45475a;
+    border: 1px solid #313244;
+}
+
 QWidget#device_bar QLabel#toolbar_section,
 QWidget#run_bar QLabel#toolbar_section {
     color: #6c7086;

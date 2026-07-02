@@ -36,6 +36,7 @@ def _build_runtest_cmd(air_dir: str, device_type: str, device_serial: str,
 
 class RunController(QObject):
     output_received = pyqtSignal(str, bool)
+    step_screenshot = pyqtSignal(bytes)
     run_finished = pyqtSignal(int, str)
     run_started = pyqtSignal()
     run_stopped = pyqtSignal()
@@ -141,7 +142,10 @@ class RunController(QObject):
             return
 
         poco = device.poco
-        reporter = Reporter(Path(air_dir), "local", "")
+        reporter = Reporter(
+            Path(air_dir), "local", "",
+            on_screenshot=lambda data: self.step_screenshot.emit(data),
+        )
         recorder = RecordingPocoClient(poco, reporter)
         namespace = build_namespace(recorder, reporter)
 

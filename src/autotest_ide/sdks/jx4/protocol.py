@@ -265,7 +265,7 @@ class JX4Protocol(PocoProtocol):
     # ── hierarchy conversion ─────────────────────────────────────
 
     def transform_result(self, method: str, result: Any) -> Any:
-        """Convert JX4 hierarchy tree to Poco-compatible format.
+        """Convert JX4 results to Poco-compatible format.
 
         JX4 ``getHierarchy`` returns a tree whose nodes look like::
 
@@ -279,9 +279,19 @@ class JX4Protocol(PocoProtocol):
             {"name": "BtnStart", "type": "GameObject",
              "payload": {"text": "", "x": 100, "y": 200},
              "node_id": "-21912", "children": [...]}
+
+        JX4 ``getNodeByPos`` may return a path string (e.g. ``"A/B/C"``)
+        when supported, or an error string (starting with ``"error:"``)
+        when the SDK command is missing.  Error strings are raised as
+        ``PocoProtocolError`` so that PocoWorker falls through to
+        ``inspect_failed``.
         """
         if method == "dump_hierarchy" and isinstance(result, dict):
             return _convert_jx4_node(result)
+        if method == "inspect_by_point" and isinstance(result, str):
+            if result.startswith("error:") or "Exception" in result:
+                raise PocoProtocolError(result)
+            return _path_to_node(result)
         return result
 
     # ── PC-native screenshot ──────────────────────────────────────
@@ -337,4 +347,17 @@ def _convert_jx4_node(raw: dict) -> dict:
         "payload": payload,
         "node_id": node_id,
         "children": children,
+    }
+
+
+def _path_to_node(path: str) -> dict:
+    """Convert a JX4 path string (e.g. ``"A/B/C"``) into a minimal Poco node dict."""
+    parts = [p for p in path.split("/") if p]
+    name = parts[-1] if parts else ""
+    return {
+        "name": name,
+        "type": "GameObject",
+        "payload": {"text": "", "path": path},
+        "node_id": path,
+        "children": [],
     }

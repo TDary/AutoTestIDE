@@ -54,6 +54,19 @@ _SVG_TEMPLATES = {
         '<line x1="8" y1="10" x2="2" y2="12"/>'
         '<line x1="22" y1="12" x2="16" y2="10"/></svg>'
     ),
+    "record": (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" '
+        'viewBox="0 0 24 24" fill="{color}" stroke="{color}" stroke-width="2" '
+        'stroke-linecap="round" stroke-linejoin="round">'
+        '<circle cx="12" cy="12" r="6"/></svg>'
+    ),
+    "stop_record": (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" '
+        'viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" '
+        'stroke-linecap="round" stroke-linejoin="round">'
+        '<circle cx="12" cy="12" r="6"/>'
+        '<rect x="9" y="9" width="6" height="6" rx="0.5" fill="{color}"/></svg>'
+    ),
 }
 
 

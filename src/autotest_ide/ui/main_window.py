@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PyQt5.QtCore import Qt, QSize
+from PyQt5.QtCore import Qt, QSize, QTimer
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout,
@@ -18,8 +18,9 @@ from autotest_ide.ui.title_bar import CustomTitleBar
 from autotest_ide.ui.tree_panel import TreePanel
 from autotest_ide.ui.property_panel import PropertyPanel
 from autotest_ide.ui.console import Console
-from autotest_ide.ui.threads import ScreenshotWorker, DeviceBridge
+from autotest_ide.ui.threads import ScreenshotWorker, PocoWorker, DeviceBridge
 from autotest_ide.ui.run_controller import RunController
+from autotest_ide.ui.record_controller import RecordController
 from autotest_ide.ui.report_view import ReportView
 from autotest_ide.core.device_manager import DeviceManager
 from autotest_ide.report import render_report
@@ -45,6 +46,7 @@ class MainWindow(QMainWindow):
         self._poco_worker = None
         self._device_bridge = None
         self._run_controller = RunController(self)
+        self._record_controller = RecordController(self)
         self._report_view = None
         self._current_air = None
         self._cached_root = None
@@ -103,6 +105,18 @@ class MainWindow(QMainWindow):
         stop_action.setShortcut("Shift+F5")
         stop_action.triggered.connect(self._on_stop_clicked)
         self._menu_run.addAction(stop_action)
+
+        self._menu_run.addSeparator()
+
+        record_menu_action = QAction("录制", self)
+        record_menu_action.setShortcut("Ctrl+R")
+        record_menu_action.triggered.connect(self._on_record_clicked)
+        self._menu_run.addAction(record_menu_action)
+
+        stop_record_menu_action = QAction("停止录制", self)
+        stop_record_menu_action.setShortcut("Ctrl+Shift+R")
+        stop_record_menu_action.triggered.connect(self._on_stop_record_clicked)
+        self._menu_run.addAction(stop_record_menu_action)
 
         self._menu_help = QMenu("帮助", self)
         about_action = QAction("关于", self)
@@ -220,6 +234,23 @@ class MainWindow(QMainWindow):
         self.stop_btn.clicked.connect(self._on_stop_clicked)
         run_layout.addWidget(self.stop_btn)
 
+        self.record_btn = QToolButton()
+        self.record_btn.setIcon(make_icon("record", "#f9e2af"))
+        self.record_btn.setText(" 录制")
+        self.record_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.record_btn.setObjectName("btn_record")
+        self.record_btn.clicked.connect(self._on_record_clicked)
+        run_layout.addWidget(self.record_btn)
+
+        self.stop_record_btn = QToolButton()
+        self.stop_record_btn.setIcon(make_icon("stop_record", "#6c7086"))
+        self.stop_record_btn.setText(" 停录")
+        self.stop_record_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.stop_record_btn.setObjectName("btn_stop_record")
+        self.stop_record_btn.setEnabled(False)
+        self.stop_record_btn.clicked.connect(self._on_stop_record_clicked)
+        run_layout.addWidget(self.stop_record_btn)
+
         run_layout.addStretch()
 
         self.centralWidget().layout().addWidget(run_bar)
@@ -235,6 +266,17 @@ class MainWindow(QMainWindow):
         self.stop_action.setEnabled(False)
         self.stop_action.triggered.connect(self._on_stop_clicked)
         self.addAction(self.stop_action)
+
+        self.record_action = QAction("录制", self)
+        self.record_action.setShortcut("Ctrl+R")
+        self.record_action.triggered.connect(self._on_record_clicked)
+        self.addAction(self.record_action)
+
+        self.stop_record_action = QAction("停止录制", self)
+        self.stop_record_action.setShortcut("Ctrl+Shift+R")
+        self.stop_record_action.setEnabled(False)
+        self.stop_record_action.triggered.connect(self._on_stop_record_clicked)
+        self.addAction(self.stop_record_action)
 
     @staticmethod
     def _make_btn(icon_name: str, text: str, color: str, obj_name: str):
@@ -273,6 +315,11 @@ class MainWindow(QMainWindow):
         self._tree_refresh_btn.clicked.connect(self._on_refresh_tree)
         right_tabs.setCornerWidget(self._tree_refresh_btn, Qt.TopRightCorner)
 
+        # Auto-refresh UI tree every 10s when device is online
+        self._tree_refresh_timer = QTimer(self)
+        self._tree_refresh_timer.setInterval(10000)
+        self._tree_refresh_timer.timeout.connect(self._on_refresh_tree)
+
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(self.device_panel)
         splitter.addWidget(self.editor)
@@ -299,12 +346,12 @@ class MainWindow(QMainWindow):
         self.device_panel.inspect_requested.connect(self._on_inspect_requested)
         self.tree_panel.selectionModel().selectionChanged.connect(self._on_tree_selection_changed)
         self.tree_panel.insert_code_requested.connect(self._on_insert_code_from_tree)
-        self._run_controller.output_received.connect(
-            lambda text, is_err: self.console.append_text(text, is_err)
-        )
+        self._run_controller.output_received.connect(self.console.append_text)
+        self._run_controller.step_screenshot.connect(self.device_panel.update_screenshot)
         self._run_controller.run_started.connect(self._on_run_started)
         self._run_controller.run_finished.connect(self._on_run_finished)
         self._run_controller.run_stopped.connect(self._on_run_stopped)
+        self._record_controller.code_generated.connect(self.editor.insert_locator_code)
 
     def _refresh_devices(self):
         self.device_combo.clear()
@@ -373,6 +420,10 @@ class MainWindow(QMainWindow):
         self._device_bridge = DeviceBridge(device)
         self._device_bridge.status_changed.connect(self._on_device_status_changed)
 
+        self._poco_worker = PocoWorker(device, self)
+        self._poco_worker.inspect_result.connect(self._on_inspect_result)
+        self._poco_worker.inspect_failed.connect(self._on_inspect_failed)
+
         self._start_screenshot_worker(device)
         self._cached_root = device.poco.get_root()
         self._cached_flat = device.poco._flatten_tree(self._cached_root)
@@ -384,10 +435,14 @@ class MainWindow(QMainWindow):
         self._conn_status.setStyleSheet(
             "color: #a6e3a1; font-size: 13px; font-weight: bold; padding: 2px 8px;"
         )
+        self._tree_refresh_timer.start()
 
     def _disconnect_device(self):
         logger.info("Disconnecting device")
         self._stop_screenshot_worker()
+        if self._poco_worker:
+            self._poco_worker.quit()
+            self._poco_worker = None
         self._device_mgr.disconnect_active()
         self._cached_root = None
         self._cached_flat = []
@@ -397,6 +452,7 @@ class MainWindow(QMainWindow):
         self._conn_status.setStyleSheet(
             "color: #f38ba8; font-size: 13px; font-weight: bold; padding: 2px 8px;"
         )
+        self._tree_refresh_timer.stop()
         self.device_panel.clear_highlight()
         self.property_panel.show_properties({})
         self.tree_panel.load_tree({"name": "", "type": "", "payload": {}, "children": []})
@@ -542,6 +598,10 @@ class MainWindow(QMainWindow):
             )
         elif status in ("offline", "disconnected"):
             self._stop_screenshot_worker()
+            if self._poco_worker:
+                self._poco_worker.quit()
+                self._poco_worker = None
+            self._tree_refresh_timer.stop()
             self._conn_status.setText(" ● 未连接 ")
             self._conn_status.setStyleSheet(
                 "color: #f38ba8; font-size: 13px; font-weight: bold; padding: 2px 8px;"
@@ -552,7 +612,29 @@ class MainWindow(QMainWindow):
         if not device or device.status != "online":
             return
         self.status_coords.setText(f"  坐标: ({x}, {y})  ")
-        self.editor.insert_locator_code(f"auto.click({x}, {y})\n")
+        self._last_inspect_xy = (x, y)
+        if self._poco_worker and not self._poco_worker.isRunning():
+            self._poco_worker.inspect(x, y)
+        else:
+            self._on_inspect_failed("inspect worker busy or unavailable", x, y)
+
+    def _on_inspect_result(self, node: dict, screenshot: bytes):
+        self.device_panel.update_screenshot(screenshot)
+        bounds = node.get("payload", {}).get("pos", {})
+        if bounds:
+            self.device_panel.highlight_region(bounds)
+        node_id = node.get("node_id", "")
+        if node_id:
+            self.tree_panel.highlight_node(node_id)
+        self.property_panel.show_properties(node.get("payload", {}))
+        if self._record_controller.is_recording:
+            x, y = getattr(self, "_last_inspect_xy", (0, 0))
+            self._record_controller.on_inspect_result(node, x, y)
+
+    def _on_inspect_failed(self, error: str, x: int, y: int):
+        self.console.append_warn(f"检查节点失败: {error}")
+        if self._record_controller.is_recording:
+            self._record_controller.on_inspect_failed(x, y)
 
     def _on_insert_code_from_tree(self, path: str):
         self.editor.insert_locator_code(f"auto.find_and_tap('{path}')\n")
@@ -692,6 +774,8 @@ class MainWindow(QMainWindow):
         self.stop_action.setEnabled(True)
         self.run_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
+        self.record_btn.setEnabled(False)
+        self.stop_record_btn.setEnabled(False)
         self.device_panel.setEnabled(False)
 
     def _on_run_finished(self, exit_code: int, report_path: str):
@@ -699,6 +783,7 @@ class MainWindow(QMainWindow):
         self.stop_action.setEnabled(False)
         self.run_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
+        self.record_btn.setEnabled(True)
         self.device_panel.setEnabled(True)
         logger.info("Script finished exit_code=%d report_path=%s", exit_code, report_path)
         self.console.append_text(f"脚本结束 (exit code: {exit_code})")
@@ -713,7 +798,38 @@ class MainWindow(QMainWindow):
         self.stop_action.setEnabled(False)
         self.run_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
+        self.record_btn.setEnabled(True)
         self.device_panel.setEnabled(True)
+
+    def _on_record_clicked(self):
+        if not self._cached_flat:
+            device = self._device_mgr.active
+            if device and device.status == "online":
+                try:
+                    self._cached_root = device.poco.get_root()
+                    self._cached_flat = device.poco._flatten_tree(self._cached_root)
+                except Exception as e:
+                    self.console.append_warn(f"刷新 UI 树失败: {e}")
+                    return
+            else:
+                self.console.append_warn("请先连接设备")
+                return
+        self._record_controller.start(self._cached_flat)
+        self.record_btn.setEnabled(False)
+        self.stop_record_btn.setEnabled(True)
+        self.run_btn.setEnabled(False)
+        self.record_action.setEnabled(False)
+        self.stop_record_action.setEnabled(True)
+        self.console.append_text("录制开始 — 点击设备截图将自动生成代码")
+
+    def _on_stop_record_clicked(self):
+        self._record_controller.stop()
+        self.record_btn.setEnabled(True)
+        self.stop_record_btn.setEnabled(False)
+        self.run_btn.setEnabled(True)
+        self.record_action.setEnabled(True)
+        self.stop_record_action.setEnabled(False)
+        self.console.append_text("录制停止")
 
     def closeEvent(self, event):
         if not self._check_unsaved():

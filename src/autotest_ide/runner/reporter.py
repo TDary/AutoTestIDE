@@ -14,13 +14,15 @@ _SAFE_FILENAME_RE = re.compile(r"^[a-zA-Z0-9_]+\.(png|jpg|jpeg)$")
 
 
 class Reporter:
-    def __init__(self, air_dir: Path, device_type: str, device_serial: str):
+    def __init__(self, air_dir: Path, device_type: str, device_serial: str,
+                 on_screenshot=None):
         self._air_dir = air_dir
         self._device_type = device_type
         self._device_serial = device_serial
         self._steps: list = []
         self._start_time = time.time()
         self._current_step: Optional[ReportStep] = None
+        self._on_screenshot = on_screenshot
 
     @property
     def steps(self) -> list:
@@ -42,6 +44,8 @@ class Reporter:
             return
         step.status = "pass"
         if screenshot:
+            if self._on_screenshot:
+                self._on_screenshot(screenshot)
             step.screenshot = self._save_screenshot(step.index, screenshot)
         self._steps.append(step)
         self._current_step = None
@@ -53,6 +57,8 @@ class Reporter:
         step.status = "fail"
         step.error = error
         if screenshot:
+            if self._on_screenshot:
+                self._on_screenshot(screenshot)
             step.screenshot = self._save_screenshot(step.index, screenshot)
         self._steps.append(step)
         self._current_step = None

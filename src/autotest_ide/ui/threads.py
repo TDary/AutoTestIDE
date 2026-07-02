@@ -36,7 +36,7 @@ class ScreenshotWorker(QThread):
 
 class PocoWorker(QThread):
     inspect_result = pyqtSignal(dict, bytes)
-    inspect_failed = pyqtSignal(str)
+    inspect_failed = pyqtSignal(str, int, int)
 
     def __init__(self, device: Device, parent=None):
         super().__init__(parent)
@@ -44,6 +44,8 @@ class PocoWorker(QThread):
         self._task = None
 
     def inspect(self, x: int, y: int):
+        if self.isRunning():
+            return
         self._task = ("inspect", x, y)
         self.start()
 
@@ -59,7 +61,7 @@ class PocoWorker(QThread):
                 self.inspect_result.emit(result, shot)
             except Exception as e:
                 logger.warning("PocoWorker inspect failed at (%d, %d): %s", x, y, e)
-                self.inspect_failed.emit(str(e))
+                self.inspect_failed.emit(str(e), x, y)
 
 
 class DeviceBridge(QObject):

@@ -52,3 +52,28 @@ def test_reporter_rejects_invalid_png():
         reporter.step_pass(screenshot=b"not-a-png-at-all")
         assert reporter.steps[0].screenshot == ""
         assert not (Path(tmp) / "step_1.png").exists()
+
+
+def test_reporter_on_screenshot_callback():
+    collected = []
+    with tempfile.TemporaryDirectory() as tmp:
+        reporter = Reporter(
+            Path(tmp), "android", "serial1",
+            on_screenshot=lambda data: collected.append(data),
+        )
+        reporter.step_start("click(100, 200)")
+        reporter.step_pass(screenshot=_FAKE_PNG)
+        assert len(collected) == 1
+        assert collected[0] == _FAKE_PNG
+
+
+def test_reporter_on_screenshot_callback_fail():
+    collected = []
+    with tempfile.TemporaryDirectory() as tmp:
+        reporter = Reporter(
+            Path(tmp), "android", "serial1",
+            on_screenshot=lambda data: collected.append(data),
+        )
+        reporter.step_start("click(100, 200)")
+        reporter.step_fail(error="err", screenshot=_FAKE_PNG)
+        assert len(collected) == 1
