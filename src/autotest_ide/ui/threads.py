@@ -27,7 +27,7 @@ class ScreenshotWorker(QThread):
                 png_bytes = self._device.poco.screenshot()
                 self.screenshot_ready.emit(png_bytes)
             except Exception:
-                logger.debug("Screenshot capture failed", exc_info=True)
+                logger.warning("Screenshot capture failed", exc_info=True)
 
     def stop(self):
         self._stop_event.set()

@@ -223,6 +223,16 @@ class PocoClient:
     def click(self, x: int, y: int) -> dict:
         return self._request_json("click", x, y)
 
+    def find_and_tap(self, name: str, camera: str = "", rml: int = -1) -> dict:
+        """Find a UI node by name and tap it (server-side find+tap).
+
+        For JX4, this sends ``findObjectAndTap;//name;camera;"true";rml;&``.
+        The ``name`` arg is auto-prefixed with ``//`` (By.NAME convention).
+        """
+        path = f"//{name}" if not name.startswith("/") else name
+        enabled = "true"
+        return self._request_json("find_and_tap", path, camera, enabled, rml)
+
     def set_text(self, node_id: str, text: str) -> dict:
         return self._request_json("set_text", node_id, text)
 

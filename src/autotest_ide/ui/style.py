@@ -220,6 +220,23 @@ QLabel#conn_status_disconnected {
     padding: 2px 8px;
 }
 
+QPushButton#btn_tree_refresh {
+    background-color: rgba(137, 180, 250, 0.18);
+    color: #89b4fa;
+    border: 1px solid rgba(137, 180, 250, 0.5);
+    border-radius: 4px;
+    padding: 2px 12px;
+    font-size: 12px;
+}
+
+QPushButton#btn_tree_refresh:hover {
+    background-color: rgba(137, 180, 250, 0.35);
+}
+
+QPushButton#btn_tree_refresh:pressed {
+    background-color: rgba(137, 180, 250, 0.5);
+}
+
 QToolButton#btn_run {
     background-color: rgba(166, 227, 161, 0.22);
     color: #a6e3a1;

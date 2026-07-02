@@ -119,6 +119,7 @@ class JX4Protocol(PocoProtocol):
         "get_attributes": "getInspector",
         "inspect_by_point": "getNodeByPos",
         "click": "tap",
+        "find_and_tap": "findObjectAndTap",
         "set_text": "setText",
         "get_server_version": "getServerVersion",
         # getScreen returns screen size JSON (width/height).

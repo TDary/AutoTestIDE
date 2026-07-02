@@ -4,7 +4,7 @@ from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout,
-    QSplitter, QTabWidget, QLabel, QComboBox,
+    QSplitter, QTabWidget, QLabel, QComboBox, QPushButton,
     QStatusBar, QToolBar, QAction,
     QFileDialog, QMessageBox, QLineEdit, QDialog, QDialogButtonBox, QFormLayout,
     QInputDialog, QVBoxLayout, QMenu,
@@ -22,7 +22,6 @@ from autotest_ide.ui.threads import ScreenshotWorker, PocoWorker, DeviceBridge
 from autotest_ide.ui.run_controller import RunController
 from autotest_ide.ui.report_view import ReportView
 from autotest_ide.core.device_manager import DeviceManager
-from autotest_ide.core.locator import generate_locator
 from autotest_ide.report import render_report
 
 logger = getLogger(__name__)
@@ -47,7 +46,7 @@ class MainWindow(QMainWindow):
         self._device_bridge = None
         self._run_controller = RunController(self)
         self._report_view = None
-        self._current_file = None
+        self._current_air = None
         self._cached_root = None
         self._cached_flat = []
 
@@ -266,6 +265,13 @@ class MainWindow(QMainWindow):
         right_tabs.addTab(self.property_panel, "属性")
         right_tabs.addTab(self.tree_panel, "UI 树")
         right_tabs.addTab(self.console, "控制台")
+
+        # Refresh button for UI tree (top-right of tab)
+        self._tree_refresh_btn = QPushButton("刷新")
+        self._tree_refresh_btn.setObjectName("btn_tree_refresh")
+        self._tree_refresh_btn.setFixedHeight(24)
+        self._tree_refresh_btn.clicked.connect(self._on_refresh_tree)
+        right_tabs.setCornerWidget(self._tree_refresh_btn, Qt.TopRightCorner)
 
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(self.device_panel)
@@ -564,8 +570,19 @@ class MainWindow(QMainWindow):
             bounds = node.get("payload", {}).get("visibleBounds", {})
             self.device_panel.highlight_region(bounds)
             self.property_panel.show_properties(node.get("payload", {}))
-            locator = generate_locator(node, all_nodes=flat)
-            self.editor.insert_locator_code(f"{locator}.click()")
+            name = node.get("name", "")
+            text = node.get("payload", {}).get("text", "")
+            lines = []
+            if name:
+                lines.append(f"poco.find_and_tap('{name}')")
+            elif text:
+                lines.append(f"# text='{text}', use find_and_tap or coordinates")
+            else:
+                lines.append(f"# unnamed node (id={node_id}), use coordinates")
+            if text and name != text:
+                lines.append(f"# text: {text!r}")
+            code = "\n".join(lines) + "\n"
+            self.editor.insert_locator_code(code)
         else:
             self.device_panel.clear_highlight()
             self.property_panel.show_properties({})
@@ -573,6 +590,19 @@ class MainWindow(QMainWindow):
     def _on_inspect_failed(self, error: str):
         logger.warning("Inspect failed: %s", error)
         self.console.append_text(f"检选点失败: {error}", is_error=True)
+
+    def _on_refresh_tree(self):
+        device = self._device_mgr.active
+        if not device or device.status != "online":
+            return
+        try:
+            self._cached_root = device.poco.get_root()
+            self._cached_flat = device.poco._flatten_tree(self._cached_root)
+            self.tree_panel.load_tree(self._cached_root)
+            logger.info("UI tree refreshed")
+        except Exception as e:
+            logger.warning("Failed to refresh tree: %s", e)
+            self.console.append_text(f"刷新 UI 树失败: {e}", is_error=True)
 
     def _find_node_in_tree(self, device, node_id: str) -> dict:
         try:
@@ -599,37 +629,58 @@ class MainWindow(QMainWindow):
     def _on_new(self):
         if not self._check_unsaved():
             return
-        self.editor.clear()
-        self.editor.setPlaceholderText("# 在此编写自动化脚本\npoco('Button_Play').click()")
-        self._current_file = None
+        air_dir = QFileDialog.getExistingDirectory(self, "新建 .air 工程", "",)
+        if not air_dir:
+            return
+        if not air_dir.endswith(".air"):
+            air_dir += ".air"
+        air_path = Path(air_dir)
+        air_path.mkdir(exist_ok=True)
+        script = air_path / "script.py"
+        if not script.exists():
+            script.write_text("# 在此编写自动化脚本\nimport time\ntime.sleep(2)\n", encoding="utf-8")
+        self._current_air = str(air_path)
+        self.editor.setPlainText(script.read_text(encoding="utf-8"))
         self.editor.document().setModified(False)
+        logger.info("New .air project: %s", air_path)
 
     def _on_open(self):
         if not self._check_unsaved():
             return
-        path, _ = QFileDialog.getOpenFileName(self, "打开脚本", "", "Python 文件 (*.py);;所有文件 (*)")
-        if path:
-            try:
-                content = Path(path).read_text(encoding="utf-8")
-                self.editor.setPlainText(content)
-                self._current_file = path
-                self.editor.document().setModified(False)
-                logger.info("Opened file: %s", path)
-            except Exception as e:
-                QMessageBox.warning(self, "打开失败", str(e))
+        air_dir = QFileDialog.getExistingDirectory(self, "打开 .air 工程", "",)
+        if not air_dir:
+            return
+        air_path = Path(air_dir)
+        script = air_path / "script.py"
+        if not script.exists():
+            QMessageBox.warning(self, "打开失败", f"目录中未找到 script.py:\n{air_dir}")
+            return
+        try:
+            content = script.read_text(encoding="utf-8")
+            self.editor.setPlainText(content)
+            self._current_air = str(air_path)
+            self.editor.document().setModified(False)
+            logger.info("Opened .air project: %s", air_path)
+        except Exception as e:
+            QMessageBox.warning(self, "打开失败", str(e))
 
     def _on_save(self):
-        path = getattr(self, "_current_file", None)
-        if not path:
-            path, _ = QFileDialog.getSaveFileName(self, "保存脚本", "", "Python 文件 (*.py);;所有文件 (*)")
-        if path:
-            try:
-                Path(path).write_text(self.editor.toPlainText(), encoding="utf-8")
-                self._current_file = path
-                self.editor.document().setModified(False)
-                logger.info("Saved file: %s", path)
-            except Exception as e:
-                QMessageBox.warning(self, "保存失败", str(e))
+        air_dir = getattr(self, "_current_air", None)
+        if not air_dir:
+            air_dir = QFileDialog.getExistingDirectory(self, "保存到 .air 工程", "",)
+            if not air_dir:
+                return
+            if not air_dir.endswith(".air"):
+                air_dir += ".air"
+            Path(air_dir).mkdir(exist_ok=True)
+            self._current_air = air_dir
+        script = Path(air_dir) / "script.py"
+        try:
+            script.write_text(self.editor.toPlainText(), encoding="utf-8")
+            self.editor.document().setModified(False)
+            logger.info("Saved script: %s", script)
+        except Exception as e:
+            QMessageBox.warning(self, "保存失败", str(e))
 
     def _on_about(self):
         QMessageBox.about(self, "关于 AutoTest IDE",
@@ -642,19 +693,18 @@ class MainWindow(QMainWindow):
         if not device or device.status != "online":
             self.console.append_text("错误: 没有在线设备", is_error=True)
             return
-        ret = QMessageBox.warning(
-            self, "运行脚本",
-            "脚本将以当前用户权限执行，请仅运行可信来源的 .air 脚本。\n\n是否继续？",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if ret != QMessageBox.Yes:
-            return
-        air_dir = "test.air"
+        # Save editor content to .air/script.py before running
+        air_dir = getattr(self, "_current_air", None) or "test.air"
+        air_path = Path(air_dir)
+        air_path.mkdir(exist_ok=True)
+        script = air_path / "script.py"
+        script.write_text(self.editor.toPlainText(), encoding="utf-8")
+        logger.info("Saved script to %s", script)
         sdk = self.sdk_combo.currentData() or "jx4"
         logger.info("Running script air_dir=%s device=%s:%s poco_port=%d sdk=%s",
                      air_dir, device.device_type, device.name, device.poco.port, sdk)
         self._run_controller.start(
-            air_dir, device.device_type, device.name,
+            str(air_path), device.device_type, device.name,
             device.poco.port, sdk=sdk,
         )
 
