@@ -5,6 +5,16 @@ from autotest_ide.runner.reporter import Reporter
 logger = getLogger(__name__)
 
 
+class By:
+    """Lookup strategies for ``poco.find_and_tap(by=...)``."""
+    PATH = "path"
+    NAME = "path"       # same as PATH for JX4
+    TAG = "tag"
+    LAYER = "layer"
+    COMPONENT = "component"
+    ID = "id"
+
+
 def build_namespace(poco: RecordingPocoClient, reporter: Reporter) -> dict:
     def snapshot() -> None:
         shot = poco.screenshot()
@@ -27,6 +37,7 @@ def build_namespace(poco: RecordingPocoClient, reporter: Reporter) -> dict:
 
     return {
         "poco": poco,
+        "By": By,
         "snapshot": snapshot,
         "assert_exists": assert_exists,
         "log": log,

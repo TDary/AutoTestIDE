@@ -18,7 +18,7 @@ from autotest_ide.ui.title_bar import CustomTitleBar
 from autotest_ide.ui.tree_panel import TreePanel
 from autotest_ide.ui.property_panel import PropertyPanel
 from autotest_ide.ui.console import Console
-from autotest_ide.ui.threads import ScreenshotWorker, PocoWorker, DeviceBridge
+from autotest_ide.ui.threads import ScreenshotWorker, DeviceBridge
 from autotest_ide.ui.run_controller import RunController
 from autotest_ide.ui.report_view import ReportView
 from autotest_ide.core.device_manager import DeviceManager
@@ -297,6 +297,7 @@ class MainWindow(QMainWindow):
 
     def _init_connections(self):
         self.device_panel.inspect_requested.connect(self._on_inspect_requested)
+        self.tree_panel.selectionModel().selectionChanged.connect(self._on_tree_selection_changed)
         self._run_controller.output_received.connect(
             lambda text, is_err: self.console.append_text(text, is_err)
         )
@@ -375,6 +376,9 @@ class MainWindow(QMainWindow):
         self._cached_root = device.poco.get_root()
         self._cached_flat = device.poco._flatten_tree(self._cached_root)
         self.tree_panel.load_tree(self._cached_root)
+        self.status_device.setText(f"  设备: {device.name}  ")
+        sdk = self.sdk_combo.currentData() or "jx4"
+        self.status_protocol.setText(f"  协议: {device.poco.protocol_version or '-'} ({sdk})  ")
         self._conn_status.setText(" ● 已连接 ")
         self._conn_status.setStyleSheet(
             "color: #a6e3a1; font-size: 13px; font-weight: bold; padding: 2px 8px;"
@@ -547,49 +551,7 @@ class MainWindow(QMainWindow):
         if not device or device.status != "online":
             return
         self.status_coords.setText(f"  坐标: ({x}, {y})  ")
-        if self._poco_worker and self._poco_worker.isRunning():
-            return
-        logger.debug("Inspect requested at (%d, %d)", x, y)
-        self._poco_worker = PocoWorker(device)
-        self._poco_worker.inspect_result.connect(self._on_inspect_result)
-        self._poco_worker.inspect_failed.connect(self._on_inspect_failed)
-        self._poco_worker.inspect(x, y)
-
-    def _on_inspect_result(self, result: dict, screenshot_bytes: bytes):
-        device = self._device_mgr.active
-        if not device:
-            return
-        node_id = result.get("node_id", "")
-        self.device_panel.update_screenshot(screenshot_bytes)
-        root = self._cached_root
-        flat = self._cached_flat
-        if node_id:
-            self.tree_panel.highlight_node(node_id)
-        node = self._find_node_in_tree(device, node_id) if device and node_id else None
-        if node:
-            bounds = node.get("payload", {}).get("visibleBounds", {})
-            self.device_panel.highlight_region(bounds)
-            self.property_panel.show_properties(node.get("payload", {}))
-            name = node.get("name", "")
-            text = node.get("payload", {}).get("text", "")
-            lines = []
-            if name:
-                lines.append(f"poco.find_and_tap('{name}')")
-            elif text:
-                lines.append(f"# text='{text}', use find_and_tap or coordinates")
-            else:
-                lines.append(f"# unnamed node (id={node_id}), use coordinates")
-            if text and name != text:
-                lines.append(f"# text: {text!r}")
-            code = "\n".join(lines) + "\n"
-            self.editor.insert_locator_code(code)
-        else:
-            self.device_panel.clear_highlight()
-            self.property_panel.show_properties({})
-
-    def _on_inspect_failed(self, error: str):
-        logger.warning("Inspect failed: %s", error)
-        self.console.append_text(f"检选点失败: {error}", is_error=True)
+        self.editor.insert_locator_code(f"poco.click({x}, {y})\n")
 
     def _on_refresh_tree(self):
         device = self._device_mgr.active
@@ -604,13 +566,22 @@ class MainWindow(QMainWindow):
             logger.warning("Failed to refresh tree: %s", e)
             self.console.append_text(f"刷新 UI 树失败: {e}", is_error=True)
 
-    def _find_node_in_tree(self, device, node_id: str) -> dict:
-        try:
-            attrs = device.poco.get_attributes(node_id)
-            return {"node_id": node_id, "payload": attrs}
-        except Exception:
-            logger.debug("Failed to find node %s in tree", node_id, exc_info=True)
-            return None
+    def _on_tree_selection_changed(self):
+        node_data = self.tree_panel.get_selected_node_data()
+        if node_data:
+            node_id = node_data.get("node_id", "")
+            if node_id and node_id != "root":
+                device = self._device_mgr.active
+                if device and device.status == "online":
+                    try:
+                        attrs = device.poco.get_attributes(node_id)
+                        self.property_panel.show_properties(attrs)
+                    except Exception:
+                        self.property_panel.show_properties(node_data)
+            else:
+                self.property_panel.show_properties(node_data)
+        else:
+            self.property_panel.show_properties({})
 
     def _check_unsaved(self) -> bool:
         if self.editor.document().isModified():
@@ -705,7 +676,7 @@ class MainWindow(QMainWindow):
                      air_dir, device.device_type, device.name, device.poco.port, sdk)
         self._run_controller.start(
             str(air_path), device.device_type, device.name,
-            device.poco.port, sdk=sdk,
+            device.poco.port, sdk=sdk, device=device,
         )
 
     def _on_stop_clicked(self):
@@ -728,16 +699,10 @@ class MainWindow(QMainWindow):
         logger.info("Script finished exit_code=%d report_path=%s", exit_code, report_path)
         self.console.append_text(f"脚本结束 (exit code: {exit_code})")
         if report_path and Path(report_path).exists():
-            html_path = str(Path(report_path).parent / "report.html")
             try:
-                render_report(Path(report_path), Path(html_path))
-                if self._report_view is None:
-                    self._report_view = ReportView()
-                self._report_view.show_report(html_path)
-                self._report_view.show()
+                render_report(Path(report_path), Path(report_path).parent / "report.html")
             except Exception as e:
                 logger.warning("Report rendering failed: %s", e, exc_info=True)
-                self.console.append_text(f"报告渲染失败: {e}", is_error=True)
 
     def _on_run_stopped(self):
         self.run_action.setEnabled(True)

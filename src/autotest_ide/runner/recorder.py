@@ -65,3 +65,20 @@ class RecordingPocoClient:
                 shot = b""
             self._reporter.step_fail(error=str(e), screenshot=shot)
             raise
+
+    def find_and_tap(self, path: str, camera: str = "", rml: int = -1, by: str = "path"):
+        self._reporter.step_start(f"find_and_tap({path!r}, by={by!r})")
+        try:
+            self._inner.find_and_tap(path, camera, rml, by)
+            self._reporter.step_pass(screenshot=self._inner.screenshot())
+        except Exception as e:
+            try:
+                shot = self._inner.screenshot()
+            except Exception:
+                logger.warning("Screenshot fallback failed after find_and_tap error", exc_info=True)
+                shot = b""
+            self._reporter.step_fail(error=str(e), screenshot=shot)
+            raise
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)

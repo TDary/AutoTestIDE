@@ -223,15 +223,36 @@ class PocoClient:
     def click(self, x: int, y: int) -> dict:
         return self._request_json("click", x, y)
 
-    def find_and_tap(self, name: str, camera: str = "", rml: int = -1) -> dict:
-        """Find a UI node by name and tap it (server-side find+tap).
+    def find_and_tap(
+        self,
+        path: str,
+        camera: str = "",
+        rml: int = -1,
+        by: str = "path",
+    ) -> dict:
+        """Find a UI node and tap it (server-side find+tap).
 
-        For JX4, this sends ``findObjectAndTap;//name;camera;"true";rml;&``.
-        The ``name`` arg is auto-prefixed with ``//`` (By.NAME convention).
+        *path* is the lookup value. *by* selects the search strategy:
+
+        - ``"path"`` (default) — hierarchy path like ``A/B/C``
+        - ``"name"`` — By.NAME: ``A/B/C`` (same as path for JX4)
+        - ``"tag"`` — By.TAG: ``//*[@tag=value]``
+        - ``"layer"`` — By.LAYER: ``//*[@layer=value]``
+        - ``"component"`` — By.COMPONENT: ``//*[@component=value]``
+        - ``"id"`` — By.ID: *path* is passed as-is
         """
-        path = f"//{name}" if not name.startswith("/") else name
+        if by == "tag":
+            wire_path = f"//*[@tag={path}]"
+        elif by == "layer":
+            wire_path = f"//*[@layer={path}]"
+        elif by == "component":
+            wire_path = f"//*[@component={path}]"
+        elif by == "id":
+            wire_path = path
+        else:
+            wire_path = path
         enabled = "true"
-        return self._request_json("find_and_tap", path, camera, enabled, rml)
+        return self._request_json("find_and_tap", wire_path, camera, enabled, rml)
 
     def set_text(self, node_id: str, text: str) -> dict:
         return self._request_json("set_text", node_id, text)

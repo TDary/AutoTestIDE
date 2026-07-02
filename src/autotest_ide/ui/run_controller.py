@@ -47,11 +47,14 @@ class RunController(QObject):
         self._air_dir: str = ""
         self._stopping = False
         self._inproc_future = None
+        self._device = None  # set by start()
 
     def start(self, air_dir: str, device_type: str, device_serial: str,
-              poco_port: int, timeout: int = 600, sdk: str = "poco"):
+              poco_port: int, timeout: int = 600, sdk: str = "poco",
+              device=None):
         self._air_dir = air_dir
         self._stopping = False
+        self._device = device
         cmd = _build_runtest_cmd(
             air_dir, device_type, device_serial, poco_port, timeout, sdk,
         )
@@ -120,36 +123,24 @@ class RunController(QObject):
                 self.run_finished.emit(exit_code, report_path)
 
     def _run_inproc(self, air_dir: str, poco_port: int, timeout: int, sdk: str):
-        """Execute the user's script inside the current process (frozen mode)."""
+        """Execute the user's script inside the current process (frozen mode).
+
+        Reuses the existing PocoClient from the connected device instead of
+        creating a new TCP connection — JX4 only accepts one client at a time.
+        """
         import io
         import contextlib
-        from concurrent.futures import Future, ThreadPoolExecutor
-        from autotest_ide.core.poco_client import PocoClient
-        from autotest_ide.sdks import PROTOCOL_REGISTRY
         from autotest_ide.runner.reporter import Reporter
         from autotest_ide.runner.recorder import RecordingPocoClient
         from autotest_ide.runner.runtime import build_namespace
 
-        # Load protocol
-        spec = PROTOCOL_REGISTRY.get(sdk, "")
-        if ":" in spec:
-            mod_path, cls_name = spec.rsplit(":", 1)
-        else:
-            mod_path = f"autotest_ide.sdks.{sdk}.protocol"
-            cls_name = sdk.upper() + "Protocol"
-        import importlib
-        mod = importlib.import_module(mod_path)
-        proto_cls = getattr(mod, cls_name)
-        protocol = proto_cls()
-
-        poco = PocoClient(host="127.0.0.1", port=poco_port, protocol=protocol)
-        try:
-            poco.connect()
-        except Exception as e:
-            self.output_received.emit(f"ERROR: connect failed: {e}\n", True)
+        device = self._get_device()
+        if device is None or device.poco is None:
+            self.output_received.emit("ERROR: no connected device\n", True)
             self.run_finished.emit(1, "")
             return
 
+        poco = device.poco
         reporter = Reporter(Path(air_dir), "local", "")
         recorder = RecordingPocoClient(poco, reporter)
         namespace = build_namespace(recorder, reporter)
@@ -157,26 +148,33 @@ class RunController(QObject):
         script_path = Path(air_dir) / "script.py"
         script_src = script_path.read_text(encoding="utf-8")
 
-        # Capture stdout/stderr from exec so we can emit it to the console
-        buf = io.StringIO()
+        # Stream stdout/stderr to console in real-time
+        class _StreamToSignal(io.StringIO):
+            def __init__(self, signal, is_err=False):
+                super().__init__()
+                self._signal = signal
+                self._is_err = is_err
+
+            def write(self, s):
+                if s:
+                    self._signal.emit(s, self._is_err)
+                return len(s)
+
+            def flush(self):
+                pass
+
+        out_stream = _StreamToSignal(self.output_received, False)
+        err_stream = _StreamToSignal(self.output_received, True)
         status = "pass"
         try:
-            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            with contextlib.redirect_stdout(out_stream), contextlib.redirect_stderr(err_stream):
                 exec(compile(script_src, str(script_path), "exec"), namespace)
         except Exception as e:
-            buf.write(f"\nERROR: {e}\n")
+            self.output_received.emit(f"ERROR: {e}\n", True)
             import traceback
-            traceback.print_exc(file=buf)
+            traceback.print_exc(file=err_stream)
             status = "fail"
-        finally:
-            poco.close()
-
-        # Emit all captured output
-        output = buf.getvalue()
-        if output:
-            for line in output.splitlines(keepends=True):
-                is_err = "ERROR" in line or "Traceback" in line
-                self.output_received.emit(line, is_err)
+        # Don't close poco — we're reusing the IDE's existing connection
 
         reporter.finish(status, script=str(script_path))
         report_path = str(Path(air_dir) / "report.json")
@@ -184,3 +182,6 @@ class RunController(QObject):
             self.run_stopped.emit()
         else:
             self.run_finished.emit(0 if status == "pass" else 1, report_path)
+
+    def _get_device(self):
+        return self._device

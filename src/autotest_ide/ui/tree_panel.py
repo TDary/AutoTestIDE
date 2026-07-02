@@ -1,6 +1,6 @@
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QStandardItemModel, QStandardItem
-from PyQt5.QtWidgets import QTreeView
+from PyQt5.QtWidgets import QTreeView, QMenu, QApplication
 
 
 class TreePanel(QTreeView):
@@ -10,6 +10,8 @@ class TreePanel(QTreeView):
         self._model.setHorizontalHeaderLabels(["名称", "类型", "文本"])
         self.setModel(self._model)
         self.setAlternatingRowColors(True)
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._on_context_menu)
         self._node_map: dict = {}
 
     def load_tree(self, root_node: dict):
@@ -58,3 +60,27 @@ class TreePanel(QTreeView):
         item = self._model.itemFromIndex(indexes[0])
         node_id = item.data(Qt.UserRole)
         return {"node_id": node_id, "name": item.text()}
+
+    def _get_node_path(self, index) -> str:
+        parts = []
+        item = self._model.itemFromIndex(index)
+        while item is not None:
+            name = item.text()
+            if name and name != "root":
+                parts.append(name)
+            parent = item.parent()
+            item = parent
+        parts.reverse()
+        return "/".join(parts)
+
+    def _on_context_menu(self, pos):
+        index = self.indexAt(pos)
+        if not index.isValid():
+            return
+        path = self._get_node_path(index)
+        menu = QMenu(self)
+        copy_action = menu.addAction(f"复制路径: {path}")
+        action = menu.exec_(self.viewport().mapToGlobal(pos))
+        if action == copy_action:
+            clipboard = QApplication.clipboard()
+            clipboard.setText(path)
