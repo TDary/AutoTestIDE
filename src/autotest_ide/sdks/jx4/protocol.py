@@ -286,18 +286,18 @@ class JX4Protocol(PocoProtocol):
     # ── PC-native screenshot ──────────────────────────────────────
 
     def capture_screenshot(self) -> bytes | None:
-        """Capture the primary screen using Pillow (PC only)."""
-        try:
-            from PIL import ImageGrab
-            from io import BytesIO
+        """Capture the primary screen using Pillow (PC only).
 
-            img = ImageGrab.grab()
-            buf = BytesIO()
-            img.save(buf, format="PNG")
-            return buf.getvalue()
-        except Exception:
-            logger.debug("PIL ImageGrab failed", exc_info=True)
-            return None
+        Raises on PIL failure so PocoClient.screenshot() won't fall through
+        to the broken socket path (JX4 has no binary screenshot command).
+        """
+        from PIL import ImageGrab
+        from io import BytesIO
+
+        img = ImageGrab.grab()
+        buf = BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
 
 
 # ── JX4 → Poco hierarchy converter ─────────────────────────────────

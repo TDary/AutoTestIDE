@@ -170,6 +170,11 @@ class MainWindow(QMainWindow):
         self._disconnect_btn.clicked.connect(self._disconnect_device)
         layout.addWidget(self._disconnect_btn)
 
+        self._conn_status = QLabel(" ● 未连接 ")
+        self._conn_status.setObjectName("conn_status_disconnected")
+        self._conn_status.setFixedHeight(24)
+        layout.addWidget(self._conn_status)
+
         layout.addStretch()
 
         # Add device bar to the central outer layout (below title bar)
@@ -364,6 +369,10 @@ class MainWindow(QMainWindow):
         self._cached_root = device.poco.get_root()
         self._cached_flat = device.poco._flatten_tree(self._cached_root)
         self.tree_panel.load_tree(self._cached_root)
+        self._conn_status.setText(" ● 已连接 ")
+        self._conn_status.setStyleSheet(
+            "color: #a6e3a1; font-size: 13px; font-weight: bold; padding: 2px 8px;"
+        )
 
     def _disconnect_device(self):
         logger.info("Disconnecting device")
@@ -373,6 +382,10 @@ class MainWindow(QMainWindow):
         self._cached_flat = []
         self.status_device.setText("  设备: 未连接  ")
         self.status_protocol.setText("  协议: -  ")
+        self._conn_status.setText(" ● 未连接 ")
+        self._conn_status.setStyleSheet(
+            "color: #f38ba8; font-size: 13px; font-weight: bold; padding: 2px 8px;"
+        )
         self.device_panel.clear_highlight()
         self.property_panel.show_properties({})
         self.tree_panel.load_tree({"name": "", "type": "", "payload": {}, "children": []})
@@ -435,6 +448,10 @@ class MainWindow(QMainWindow):
         self._cached_root = device.poco.get_root()
         self._cached_flat = device.poco._flatten_tree(self._cached_root)
         self.tree_panel.load_tree(self._cached_root)
+        self._conn_status.setText(" ● 已连接 ")
+        self._conn_status.setStyleSheet(
+            "color: #a6e3a1; font-size: 13px; font-weight: bold; padding: 2px 8px;"
+        )
 
     @staticmethod
     def _probe_tcp(host: str, port: int, timeout: float = 2.0) -> str:
@@ -508,10 +525,16 @@ class MainWindow(QMainWindow):
             if device.poco:
                 sdk = self.sdk_combo.currentData() or "jx4"
                 self.status_protocol.setText(f"  协议: {device.poco.protocol_version or '-'} ({sdk})  ")
-        elif status == "offline":
+            self._conn_status.setText(" ● 已连接 ")
+            self._conn_status.setStyleSheet(
+                "color: #a6e3a1; font-size: 13px; font-weight: bold; padding: 2px 8px;"
+            )
+        elif status in ("offline", "disconnected"):
             self._stop_screenshot_worker()
-        elif status == "disconnected":
-            self._stop_screenshot_worker()
+            self._conn_status.setText(" ● 未连接 ")
+            self._conn_status.setStyleSheet(
+                "color: #f38ba8; font-size: 13px; font-weight: bold; padding: 2px 8px;"
+            )
 
     def _on_inspect_requested(self, x: int, y: int):
         device = self._device_mgr.active

@@ -206,6 +206,20 @@ QToolButton#btn_disconnect:disabled {
     border: 1px solid #313244;
 }
 
+QLabel#conn_status_connected {
+    color: #a6e3a1;
+    font-size: 13px;
+    font-weight: bold;
+    padding: 2px 8px;
+}
+
+QLabel#conn_status_disconnected {
+    color: #f38ba8;
+    font-size: 13px;
+    font-weight: bold;
+    padding: 2px 8px;
+}
+
 QToolButton#btn_run {
     background-color: rgba(166, 227, 161, 0.22);
     color: #a6e3a1;
