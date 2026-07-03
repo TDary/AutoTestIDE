@@ -64,6 +64,27 @@ class PocoWorker(QThread):
                 self.inspect_failed.emit(str(e), x, y)
 
 
+class DeviceScanWorker(QThread):
+    devices_found = pyqtSignal(list, list)  # android_list, local_list
+
+    def __init__(self, device_mgr, parent=None):
+        super().__init__(parent)
+        self._device_mgr = device_mgr
+
+    def run(self):
+        android = []
+        local = []
+        try:
+            android = self._device_mgr.list_android_devices()
+        except Exception:
+            logger.warning("Android device scan failed", exc_info=True)
+        try:
+            local = self._device_mgr.list_local_devices()
+        except Exception:
+            logger.warning("Local device scan failed", exc_info=True)
+        self.devices_found.emit(android, local)
+
+
 class DeviceBridge(QObject):
     status_changed = pyqtSignal(str)
 

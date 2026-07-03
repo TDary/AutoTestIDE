@@ -19,7 +19,7 @@ from autotest_ide.ui.title_bar import CustomTitleBar
 from autotest_ide.ui.tree_panel import TreePanel
 from autotest_ide.ui.property_panel import PropertyPanel
 from autotest_ide.ui.console import Console
-from autotest_ide.ui.threads import ScreenshotWorker, PocoWorker, DeviceBridge
+from autotest_ide.ui.threads import ScreenshotWorker, PocoWorker, DeviceBridge, DeviceScanWorker
 from autotest_ide.ui.run_controller import RunController
 from autotest_ide.ui.record_controller import RecordController
 from autotest_ide.ui.report_view import ReportView
@@ -168,6 +168,7 @@ class MainWindow(QMainWindow):
 
         self._refresh_btn = self._make_btn("refresh", "刷新", "#89b4fa", "btn_refresh")
         self._refresh_btn.clicked.connect(self._refresh_devices)
+        self._refresh_btn.setEnabled(True)
         layout.addWidget(self._refresh_btn)
 
         layout.addSpacing(12)
@@ -354,34 +355,30 @@ class MainWindow(QMainWindow):
         self._record_controller.code_generated.connect(self.editor.insert_locator_code)
 
     def _refresh_devices(self):
+        self._refresh_btn.setEnabled(False)
         self.device_combo.clear()
-        adb_ok = False
-        try:
-            android = self._device_mgr.list_android_devices()
-            adb_ok = True
-            for d in android:
-                state = d.get("state", "device")
-                label = f"{d['serial']} ({d.get('model', 'unknown')})"
-                if state != "device":
-                    label += f" [{state}"
-                    if state == "unauthorized":
-                        label += " - 请在手机上允许USB调试"
-                    label += "]"
-                self.device_combo.addItem(label, ("android", d["serial"], state))
-        except Exception as e:
-            logger.warning("Failed to refresh android devices", exc_info=True)
-            self.device_combo.addItem("安卓设备: ADB连接失败，请检查USB和adb", None)
-        try:
-            local = self._device_mgr.list_local_devices()
-            for d in local:
-                label = f"localhost:{d['port']}"
-                self.device_combo.addItem(label, ("local", d["port"], "device"))
-        except Exception as e:
-            logger.warning("Failed to refresh local devices", exc_info=True)
-            self.console.append_text(f"刷新本地设备失败: {e}", is_error=True)
-        # IP direct-connect entries
+        self.device_combo.addItem("扫描设备中...", None)
+        self._scan_worker = DeviceScanWorker(self._device_mgr, self)
+        self._scan_worker.devices_found.connect(self._on_devices_found)
+        self._scan_worker.start()
+
+    def _on_devices_found(self, android: list, local: list):
+        self.device_combo.clear()
+        for d in android:
+            state = d.get("state", "device")
+            label = f"{d['serial']} ({d.get('model', 'unknown')})"
+            if state != "device":
+                label += f" [{state}"
+                if state == "unauthorized":
+                    label += " - 请在手机上允许USB调试"
+                label += "]"
+            self.device_combo.addItem(label, ("android", d["serial"], state))
+        for d in local:
+            label = f"localhost:{d['port']}"
+            self.device_combo.addItem(label, ("local", d["port"], "device"))
         self.device_combo.insertSeparator(self.device_combo.count())
         self.device_combo.addItem("IP直连 (如 192.168.1.100:13000)", ("ip", None, "device"))
+        self._refresh_btn.setEnabled(True)
 
     def _connect_selected_device(self):
         data = self.device_combo.currentData()
