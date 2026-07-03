@@ -1,6 +1,6 @@
 import socket
 import threading
-from collections import Counter, deque
+from collections import deque
 from concurrent.futures import Future
 from typing import Any, Optional
 

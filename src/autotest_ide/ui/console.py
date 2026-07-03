@@ -29,9 +29,9 @@ class Console(QTextEdit):
         cursor.movePosition(QTextCursor.End)
         fmt = self._error_fmt if is_error else None
         if fmt:
-            cursor.insertText(text + "\n", fmt)
+            cursor.insertText(text, fmt)
         else:
-            cursor.insertText(text + "\n")
+            cursor.insertText(text)
         self.setTextCursor(cursor)
         self.ensureCursorVisible()
 

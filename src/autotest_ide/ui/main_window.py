@@ -51,6 +51,7 @@ class MainWindow(QMainWindow):
         self._current_air = None
         self._cached_root = None
         self._cached_flat = []
+        self._last_inspect_xy = (0, 0)
 
         self._init_titlebar()
         self._build_menu()
@@ -131,7 +132,6 @@ class MainWindow(QMainWindow):
         btn = self._title_bar._btn_menu
         pos = btn.mapToGlobal(btn.rect().bottomLeft())
         # Build a combined popup so the user sees all three menus.
-        from PyQt5.QtWidgets import QMenu
         popup = QMenu(self)
         popup.addMenu(self._menu_file)
         popup.addMenu(self._menu_run)
@@ -199,7 +199,6 @@ class MainWindow(QMainWindow):
         toolbar.setMovable(False)
         toolbar.setIconSize(QSize(16, 16))
         toolbar.setObjectName("run_toolbar")
-        self.addToolBarBreak(Qt.TopToolBarArea) if False else None
         # We add the toolbar AFTER the device bar by inserting it into
         # the central layout instead of using QMainWindow's toolbar area.
         # That keeps ordering: title bar → device bar → run bar → content.
@@ -442,6 +441,7 @@ class MainWindow(QMainWindow):
         self._stop_screenshot_worker()
         if self._poco_worker:
             self._poco_worker.quit()
+            self._poco_worker.wait(2000)
             self._poco_worker = None
         self._device_mgr.disconnect_active()
         self._cached_root = None
@@ -511,14 +511,23 @@ class MainWindow(QMainWindow):
 
         self._device_bridge = DeviceBridge(device)
         self._device_bridge.status_changed.connect(self._on_device_status_changed)
+
+        self._poco_worker = PocoWorker(device, self)
+        self._poco_worker.inspect_result.connect(self._on_inspect_result)
+        self._poco_worker.inspect_failed.connect(self._on_inspect_failed)
+
         self._start_screenshot_worker(device)
         self._cached_root = device.poco.get_root()
         self._cached_flat = device.poco._flatten_tree(self._cached_root)
         self.tree_panel.load_tree(self._cached_root)
+        self.status_device.setText(f"  设备: {device.name}  ")
+        sdk = self.sdk_combo.currentData() or "jx4"
+        self.status_protocol.setText(f"  协议: {device.poco.protocol_version or '-'} ({sdk})  ")
         self._conn_status.setText(" ● 已连接 ")
         self._conn_status.setStyleSheet(
             "color: #a6e3a1; font-size: 13px; font-weight: bold; padding: 2px 8px;"
         )
+        self._tree_refresh_timer.start()
 
     @staticmethod
     def _probe_tcp(host: str, port: int, timeout: float = 2.0) -> str:
@@ -600,6 +609,7 @@ class MainWindow(QMainWindow):
             self._stop_screenshot_worker()
             if self._poco_worker:
                 self._poco_worker.quit()
+                self._poco_worker.wait(2000)
                 self._poco_worker = None
             self._tree_refresh_timer.stop()
             self._conn_status.setText(" ● 未连接 ")
@@ -836,6 +846,14 @@ class MainWindow(QMainWindow):
             event.ignore()
             return
         self._stop_screenshot_worker()
+        self._tree_refresh_timer.stop()
+        if self._poco_worker:
+            self._poco_worker.quit()
+            self._poco_worker.wait(2000)
+            self._poco_worker = None
+        if self._device_bridge:
+            self._device_bridge.deleteLater()
+            self._device_bridge = None
         self._device_mgr.shutdown()
         super().closeEvent(event)
 

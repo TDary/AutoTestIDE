@@ -221,12 +221,14 @@ class JX4Protocol(PocoProtocol):
                 return sock, port
             except ConnectionRefusedError as e:
                 last_err = e
+                sock.close()
                 logger.debug("JX4 connect refused on %s:%d, trying %d",
                              host, port, port + 1)
                 port += 1
                 continue
             except OSError as e:
                 last_err = e
+                sock.close()
                 logger.debug("JX4 connect failed on %s:%d: %s", host, port, e)
                 port += 1
                 continue

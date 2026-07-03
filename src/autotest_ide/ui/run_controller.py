@@ -46,15 +46,14 @@ class RunController(QObject):
         self._process: Optional[subprocess.Popen] = None
         self._reader_thread: Optional[threading.Thread] = None
         self._air_dir: str = ""
-        self._stopping = False
-        self._inproc_future = None
+        self._stop_event = threading.Event()
         self._device = None  # set by start()
 
     def start(self, air_dir: str, device_type: str, device_serial: str,
               poco_port: int, timeout: int = 600, sdk: str = "poco",
               device=None):
         self._air_dir = air_dir
-        self._stopping = False
+        self._stop_event.clear()
         self._device = device
         cmd = _build_runtest_cmd(
             air_dir, device_type, device_serial, poco_port, timeout, sdk,
@@ -81,9 +80,9 @@ class RunController(QObject):
         self.run_started.emit()
 
     def stop(self):
-        if self._stopping:
+        if self._stop_event.is_set():
             return
-        self._stopping = True
+        self._stop_event.set()
         if self._process is not None:
             logger.info("Stopping subprocess PID=%d", self._process.pid)
             try:
@@ -98,11 +97,10 @@ class RunController(QObject):
             except psutil.NoSuchProcess:
                 logger.debug("Process already dead during kill")
         else:
-            # In-process run — cancel the future if we have one
-            if self._inproc_future is not None and not self._inproc_future.done():
-                self._inproc_future.cancel()
+            # In-process run — signal stop event
+            pass
         if self._reader_thread:
-            self._reader_thread.join(timeout=3000)
+            self._reader_thread.join(timeout=3)
 
     def _read_output(self):
         process = self._process
@@ -118,7 +116,7 @@ class RunController(QObject):
             report_path = str(Path(self._air_dir) / "report.json") if self._air_dir else ""
             logger.debug("Subprocess exited code=%d", exit_code)
             self._process = None
-            if self._stopping:
+            if self._stop_event.is_set():
                 self.run_stopped.emit()
             else:
                 self.run_finished.emit(exit_code, report_path)
@@ -182,7 +180,7 @@ class RunController(QObject):
 
         reporter.finish(status, script=str(script_path))
         report_path = str(Path(air_dir) / "report.json")
-        if self._stopping:
+        if self._stop_event.is_set():
             self.run_stopped.emit()
         else:
             self.run_finished.emit(0 if status == "pass" else 1, report_path)

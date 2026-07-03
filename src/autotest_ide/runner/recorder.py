@@ -81,4 +81,6 @@ class RecordingPocoClient:
             raise
 
     def __getattr__(self, name):
+        if name.startswith("_"):
+            raise AttributeError(name)
         return getattr(self._inner, name)

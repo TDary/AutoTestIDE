@@ -56,7 +56,7 @@ class DevicePanel(QWidget):
         else:
             self._current_pixmap = data
         label_size = self._screenshot_label.size()
-        scaled = self._current_pixmap.scaled(label_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        scaled = self._current_pixmap.scaled(label_size, Qt.KeepAspectRatio, Qt.FastTransformation)
         self._screenshot_label.setPixmap(scaled)
         if not self._current_pixmap.isNull() and label_size.width() > 0:
             self._scale_ratio = scaled.width() / self._current_pixmap.width()
