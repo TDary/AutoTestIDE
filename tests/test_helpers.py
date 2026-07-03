@@ -211,3 +211,24 @@ def test_get_children_names_not_found():
     auto.dump_hierarchy.return_value = SIMPLE_TREE
     names = _get_children_names(auto, "NoSuch/Path")
     assert names == []
+
+
+# ── ClickablePanel name-keyword pre-filter ──────────────────────────
+
+
+def test_clickable_name_keywords():
+    from autotest_ide.ui.clickable_panel import _CLICKABLE_NAME_KEYWORDS
+    for kw in ("Btn", "Anniu", "Button", "Toggle", "btn"):
+        assert any(kw in name for name in (
+            f"{kw}_Close", f"Login{kw}", f"{kw}01", f"Anniu_Fanhui"
+        ))
+
+
+def test_attrs_has_button():
+    from autotest_ide.ui.clickable_panel import _attrs_has_button
+    attrs = {"components": [{"type": "UnityEngine.UI.Button"}]}
+    assert _attrs_has_button(attrs) is True
+    attrs_empty = {"components": []}
+    assert _attrs_has_button(attrs_empty) is False
+    attrs_none = {}
+    assert _attrs_has_button(attrs_none) is False

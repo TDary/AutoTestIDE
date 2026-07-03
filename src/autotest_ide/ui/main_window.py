@@ -20,6 +20,7 @@ from autotest_ide.ui.title_bar import CustomTitleBar
 from autotest_ide.ui.tree_panel import TreePanel
 from autotest_ide.ui.property_panel import PropertyPanel
 from autotest_ide.ui.console import Console
+from autotest_ide.ui.clickable_panel import ClickablePanel
 from autotest_ide.ui.threads import ScreenshotWorker, PocoWorker, DeviceBridge, DeviceScanWorker
 from autotest_ide.ui.run_controller import RunController
 from autotest_ide.ui.record_controller import RecordController
@@ -310,6 +311,8 @@ class MainWindow(QMainWindow):
         right_tabs.addTab(self.property_panel, "属性")
         right_tabs.addTab(self.tree_panel, "UI 树")
         right_tabs.addTab(self.console, "控制台")
+        self.clickable_panel = ClickablePanel()
+        right_tabs.addTab(self.clickable_panel, "可点击")
 
         # Refresh button for UI tree (top-right of tab)
         self._tree_refresh_btn = QPushButton("刷新")
@@ -344,6 +347,8 @@ class MainWindow(QMainWindow):
         self.device_panel.inspect_requested.connect(self._on_inspect_requested)
         self.tree_panel.selectionModel().selectionChanged.connect(self._on_tree_selection_changed)
         self.tree_panel.insert_code_requested.connect(self._on_insert_code_from_tree)
+        self.clickable_panel.node_selected.connect(self._on_clickable_node_selected)
+        self.clickable_panel.insert_code_requested.connect(self._on_insert_code_from_tree)
         self._run_controller.output_received.connect(self.console.append_text)
         self._run_controller.step_screenshot.connect(self.device_panel.update_screenshot)
         self._run_controller.run_started.connect(self._on_run_started)
@@ -422,6 +427,8 @@ class MainWindow(QMainWindow):
         self._cached_root = device.poco.get_root()
         self._cached_flat = device.poco._flatten_tree(self._cached_root)
         self.tree_panel.load_tree(self._cached_root)
+        self.clickable_panel.set_device(device)
+        self.clickable_panel.load_clickable_nodes(self._cached_flat)
         self.status_device.setText(f"  设备: {device.name}  ")
         sdk = self.sdk_combo.currentData() or "jx4"
         self.status_protocol.setText(f"  协议: {device.poco.protocol_version or '-'} ({sdk})  ")
@@ -449,6 +456,8 @@ class MainWindow(QMainWindow):
         self.device_panel.clear_highlight()
         self.property_panel.show_properties({})
         self.tree_panel.load_tree({"name": "", "type": "", "payload": {}, "children": []})
+        self.clickable_panel.set_device(None)
+        self.clickable_panel.clear()
 
     def _connect_ip_device(self):
         text, ok = QInputDialog.getText(
@@ -513,6 +522,8 @@ class MainWindow(QMainWindow):
         self._cached_root = device.poco.get_root()
         self._cached_flat = device.poco._flatten_tree(self._cached_root)
         self.tree_panel.load_tree(self._cached_root)
+        self.clickable_panel.set_device(device)
+        self.clickable_panel.load_clickable_nodes(self._cached_flat)
         self.status_device.setText(f"  设备: {device.name}  ")
         sdk = self.sdk_combo.currentData() or "jx4"
         self.status_protocol.setText(f"  协议: {device.poco.protocol_version or '-'} ({sdk})  ")
@@ -654,6 +665,8 @@ class MainWindow(QMainWindow):
             self._cached_root = device.poco.get_root()
             self._cached_flat = device.poco._flatten_tree(self._cached_root)
             self.tree_panel.load_tree(self._cached_root)
+            self.clickable_panel.set_device(device)
+            self.clickable_panel.load_clickable_nodes(self._cached_flat)
             logger.info("UI tree refreshed")
         except Exception as e:
             logger.warning("Failed to refresh tree: %s", e)
@@ -673,6 +686,23 @@ class MainWindow(QMainWindow):
                         self.property_panel.show_properties(node_data)
             else:
                 self.property_panel.show_properties(node_data)
+        else:
+            self.property_panel.show_properties({})
+
+    def _on_clickable_node_selected(self, node_id: str):
+        if node_id:
+            self.tree_panel.highlight_node(node_id)
+        device = self._device_mgr.active
+        if node_id and node_id != "root" and device and device.status == "online":
+            try:
+                attrs = device.poco.get_attributes(node_id)
+                self.property_panel.show_properties(attrs)
+            except Exception:
+                node = next((n for n in self._cached_flat if n.get("node_id") == node_id), None)
+                if node:
+                    self.property_panel.show_properties(node.get("payload", {}))
+                else:
+                    self.property_panel.show_properties({})
         else:
             self.property_panel.show_properties({})
 
