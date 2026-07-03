@@ -16,12 +16,7 @@ logger = getLogger(__name__)
 def _build_runtest_cmd(air_dir: str, device_type: str, device_serial: str,
                        poco_port: int, timeout: int, sdk: str = "poco"):
     if getattr(sys, "frozen", False):
-        # PyInstaller bundles the interpreter as python3X.dll + bootloader.
-        # There's no standalone python.exe to invoke, so we can't spawn a
-        # subprocess. Instead we'll exec the script in-process (see _run_inproc).
         return None
-    # JX4 only accepts one TCP client at a time — spawning a subprocess that
-    # tries to open a second connection will fail.  Force in-process mode.
     if sdk == "jx4":
         return None
     cmd = [sys.executable, "-m", "autotest_ide.runner.runtest"]
@@ -50,12 +45,16 @@ class RunController(QObject):
         self._reader_thread: Optional[threading.Thread] = None
         self._air_dir: str = ""
         self._stop_event = threading.Event()
-        self._device = None  # set by start()
-        self._script_path = ""  # set by start()
+        self._device = None
+        self._script_path = ""
 
     def start(self, air_dir: str, device_type: str, device_serial: str,
               poco_port: int, timeout: int = 600, sdk: str = "poco",
               device=None, script_path: str = ""):
+        if self._reader_thread and self._reader_thread.is_alive():
+            logger.warning("start() called while previous run still active")
+            return
+
         self._air_dir = air_dir
         self._stop_event.clear()
         self._device = device
@@ -64,7 +63,6 @@ class RunController(QObject):
             air_dir, device_type, device_serial, poco_port, timeout, sdk,
         )
         if cmd is not None:
-            # Dev mode — spawn a subprocess
             logger.info("Spawning subprocess: %s", " ".join(cmd))
             self._process = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -74,7 +72,6 @@ class RunController(QObject):
             )
             self._reader_thread.start()
         else:
-            # Frozen mode — exec in a background thread
             self._process = None
             self._reader_thread = threading.Thread(
                 target=self._run_inproc,
@@ -97,13 +94,10 @@ class RunController(QObject):
                     try:
                         child.kill()
                     except psutil.NoSuchProcess:
-                        logger.debug("Child process already dead")
+                        pass
                 proc.kill()
             except psutil.NoSuchProcess:
-                logger.debug("Process already dead during kill")
-        else:
-            # In-process run — signal stop event
-            pass
+                pass
         if self._reader_thread and self._reader_thread.is_alive():
             self._reader_thread.join(timeout=3)
 
@@ -115,7 +109,7 @@ class RunController(QObject):
             for line in process.stdout:
                 self.output_received.emit(line, False)
         except ValueError:
-            logger.debug("Pipe closed during read")
+            pass
         finally:
             exit_code = process.wait()
             report_path = str(Path(self._air_dir) / "report.json") if self._air_dir else ""
@@ -127,20 +121,14 @@ class RunController(QObject):
                 self.run_finished.emit(exit_code, report_path)
 
     def _run_inproc(self, air_dir: str, poco_port: int, timeout: int, sdk: str):
-        """Execute the user's script inside the current process (frozen mode).
-
-        Reuses the existing PocoClient from the connected device instead of
-        creating a new TCP connection — JX4 only accepts one client at a time.
-        """
-        import io
-        import sys
         import contextlib
         from autotest_ide.runner.reporter import Reporter
         from autotest_ide.runner.recorder import RecordingPocoClient
         from autotest_ide.runner.runtime import build_namespace
 
         device = self._get_device()
-        logger.info("_run_inproc: device=%s poco=%s script_path=%s", device, getattr(device, 'poco', None), self._script_path)
+        logger.info("_run_inproc: device=%s poco=%s script_path=%s",
+                     device, getattr(device, 'poco', None), self._script_path)
         if device is None or device.poco is None:
             self.output_received.emit("ERROR: no connected device\n", True)
             self.run_finished.emit(1, "")
@@ -161,10 +149,8 @@ class RunController(QObject):
         logger.info("_run_inproc: reading script from %s", script_path)
         script_src = script_path.read_text(encoding="utf-8")
 
-        # Stream stdout/stderr to console in real-time
-        class _StreamToSignal(io.StringIO):
+        class _StreamToSignal:
             def __init__(self, signal, is_err=False):
-                super().__init__()
                 self._signal = signal
                 self._is_err = is_err
 
@@ -179,8 +165,11 @@ class RunController(QObject):
         out_stream = _StreamToSignal(self.output_received, False)
         err_stream = _StreamToSignal(self.output_received, True)
         stop_event = self._stop_event
+        script_thread_id = threading.current_thread().ident
 
         def _stop_tracer(frame, event, arg):
+            if threading.current_thread().ident != script_thread_id:
+                return None
             if stop_event.is_set():
                 raise KeyboardInterrupt("Script stopped by user")
             return _stop_tracer
@@ -200,7 +189,6 @@ class RunController(QObject):
             status = "fail"
         finally:
             sys.settrace(None)
-        # Don't close poco — we're reusing the IDE's existing connection
 
         reporter.finish(status, script=str(script_path))
         report_path = str(Path(air_dir) / "report.json")

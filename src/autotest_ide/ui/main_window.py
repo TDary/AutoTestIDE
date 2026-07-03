@@ -729,6 +729,15 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "打开失败", str(e))
 
     def _on_save(self):
+        script_path = getattr(self, "_current_script", None)
+        if script_path:
+            try:
+                Path(script_path).write_text(self.editor.toPlainText(), encoding="utf-8")
+                self.editor.document().setModified(False)
+                logger.info("Saved script: %s", script_path)
+            except Exception as e:
+                QMessageBox.warning(self, "保存失败", str(e))
+            return
         air_dir = getattr(self, "_current_air", None)
         if not air_dir:
             air_dir = QFileDialog.getExistingDirectory(self, "保存到 .air 工程", "",)
