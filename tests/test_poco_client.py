@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from autotest_ide.core.errors import (
@@ -229,3 +231,77 @@ def test_concurrent_requests_return_correct_results(fake_server):
         assert results["inspect"] == "btn_play"
     finally:
         client.close()
+
+
+# ── dump_hierarchy cache tests ────────────────────────────────────────
+
+
+def test_dump_hierarchy_cached_within_ttl(fake_server):
+    client = PocoClient(host=fake_server.host, port=fake_server.port)
+    client.connect()
+    try:
+        before = fake_server.request_count
+        client.dump_hierarchy()
+        client.dump_hierarchy()
+        assert fake_server.request_count - before == 1
+    finally:
+        client.close()
+
+
+def test_dump_hierarchy_refreshes_after_ttl(fake_server):
+    client = PocoClient(
+        host=fake_server.host, port=fake_server.port, cache_ttl=0.3,
+    )
+    client.connect()
+    try:
+        before = fake_server.request_count
+        client.dump_hierarchy()
+        time.sleep(0.4)
+        client.dump_hierarchy()
+        assert fake_server.request_count - before == 2
+    finally:
+        client.close()
+
+
+def test_cache_disabled_with_ttl_zero(fake_server):
+    client = PocoClient(
+        host=fake_server.host, port=fake_server.port, cache_ttl=0,
+    )
+    client.connect()
+    try:
+        before = fake_server.request_count
+        client.dump_hierarchy()
+        client.dump_hierarchy()
+        assert fake_server.request_count - before == 2
+    finally:
+        client.close()
+
+
+def test_only_visible_false_bypasses_cache(fake_server):
+    client = PocoClient(host=fake_server.host, port=fake_server.port)
+    client.connect()
+    try:
+        before = fake_server.request_count
+        client.dump_hierarchy(only_visible=True)
+        client.dump_hierarchy(only_visible=False)
+        assert fake_server.request_count - before == 2
+    finally:
+        client.close()
+
+
+def test_close_invalidates_cache(fake_server):
+    client = PocoClient(host=fake_server.host, port=fake_server.port)
+    client.connect()
+    before = fake_server.request_count
+    client.dump_hierarchy()
+    assert fake_server.request_count - before == 1
+    client.close()
+    # New client should get fresh data (cache was cleared on close)
+    client2 = PocoClient(host=fake_server.host, port=fake_server.port)
+    client2.connect()
+    try:
+        before2 = fake_server.request_count
+        client2.dump_hierarchy()
+        assert fake_server.request_count - before2 == 1
+    finally:
+        client2.close()

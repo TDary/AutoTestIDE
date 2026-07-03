@@ -1,3 +1,4 @@
+from autotest_ide.core.errors import PocoConnectionError
 from autotest_ide.core.log import getLogger
 from autotest_ide.runner.recorder import RecordingPocoClient
 from autotest_ide.runner.reporter import Reporter
@@ -24,7 +25,8 @@ def build_namespace(poco: RecordingPocoClient, reporter: Reporter) -> dict:
     def assert_exists(locator: str, msg: str = "") -> None:
         reporter.step_start(f"assert_exists({locator!r})")
         try:
-            poco.get_root()
+            if not poco.heartbeat():
+                raise PocoConnectionError("heartbeat failed")
             reporter.step_pass(screenshot=poco.screenshot())
         except Exception as e:
             reporter.step_fail(error=str(e), screenshot=poco.screenshot())

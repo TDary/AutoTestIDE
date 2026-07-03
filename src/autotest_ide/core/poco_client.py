@@ -1,6 +1,7 @@
 import socket
 import struct
 import threading
+import time
 from collections import deque
 from concurrent.futures import Future
 from typing import Any, Optional
@@ -34,6 +35,7 @@ class PocoClient:
         host: str = "127.0.0.1",
         port: int = 13000,
         protocol: Optional[PocoProtocol] = None,
+        cache_ttl: float = 1.0,
     ):
         self._host = host
         self._port = port
@@ -46,6 +48,10 @@ class PocoClient:
         self._closed = True
         self.server_version: Optional[str] = None
         self.protocol_version: Optional[str] = None
+        self._hier_cache: Optional[dict] = None
+        self._hier_cache_ts: float = 0.0
+        self._hier_cache_ttl: float = cache_ttl
+        self._cache_lock = threading.Lock()
 
     @property
     def port(self) -> int:
@@ -112,6 +118,9 @@ class PocoClient:
                 pass
             self._sock = None
         self._drain_pending(PocoConnectionError("client closed"))
+        with self._cache_lock:
+            self._hier_cache = None
+            self._hier_cache_ts = 0.0
 
     def _drain_pending(self, exc: Exception):
         with self._pending_cond:
@@ -205,7 +214,17 @@ class PocoClient:
         return self.dump_hierarchy()
 
     def dump_hierarchy(self, only_visible: bool = True) -> dict:
-        return self._request_json("dump_hierarchy", onlyVisibleNode=only_visible)
+        if only_visible and self._hier_cache_ttl > 0:
+            with self._cache_lock:
+                if self._hier_cache is not None:
+                    if time.monotonic() - self._hier_cache_ts < self._hier_cache_ttl:
+                        return self._hier_cache
+        result = self._request_json("dump_hierarchy", onlyVisibleNode=only_visible)
+        if only_visible:
+            with self._cache_lock:
+                self._hier_cache = result
+                self._hier_cache_ts = time.monotonic()
+        return result
 
     def get_attributes(self, node_id: str, attr: str = "") -> dict:
         if attr:

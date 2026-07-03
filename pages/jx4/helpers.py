@@ -8,8 +8,8 @@ import time
 def object_exists(auto, path: str) -> bool:
     try:
         root = auto.dump_hierarchy()
-        flat = _flatten_tree(root)
-        return _find_node(flat, path) is not None
+        index = _build_path_index(root)
+        return path.lstrip("/") in index
     except Exception:
         return False
 
@@ -45,8 +45,8 @@ def wait_for_gone(auto, path: str, timeout: float = 30, interval: float = 1) -> 
 def find_child_text(auto, parent_path: str) -> str | None:
     try:
         root = auto.dump_hierarchy()
-        flat = _flatten_tree(root)
-        parent = _find_node(flat, parent_path)
+        index = _build_path_index(root)
+        parent = index.get(parent_path.lstrip("/"))
         if parent and parent.get("children"):
             child = parent["children"][0]
             return child.get("payload", {}).get("text", "")
@@ -56,11 +56,10 @@ def find_child_text(auto, parent_path: str) -> str | None:
 
 
 def _get_children_names(auto, parent_path: str) -> list[str]:
-    """获取指定路径节点的直接子节点名称列表。"""
     try:
         root = auto.dump_hierarchy()
-        flat = _flatten_tree(root)
-        parent = _find_node(flat, parent_path)
+        index = _build_path_index(root)
+        parent = index.get(parent_path.lstrip("/"))
         if parent and parent.get("children"):
             return [c["name"] for c in parent["children"] if c.get("name")]
     except Exception:
@@ -68,19 +67,16 @@ def _get_children_names(auto, parent_path: str) -> list[str]:
     return []
 
 
-def _flatten_tree(root: dict) -> list:
-    result = []
-    stack = [root]
-    while stack:
-        node = stack.pop()
-        result.append(node)
-        stack.extend(reversed(node.get("children", [])))
-    return result
+def _build_path_index(root: dict) -> dict[str, dict]:
+    index = {}
 
+    def _walk(node: dict, prefix: str) -> None:
+        name = node.get("name", "")
+        path = f"{prefix}/{name}" if prefix else name
+        if path:
+            index[path] = node
+        for child in node.get("children", []):
+            _walk(child, path)
 
-def _find_node(nodes: list, path: str) -> dict | None:
-    parts = [p for p in path.split("/") if p]
-    for node in nodes:
-        if node.get("name", "") == parts[-1]:
-            return node
-    return None
+    _walk(root, "")
+    return index

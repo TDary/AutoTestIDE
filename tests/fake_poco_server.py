@@ -58,6 +58,7 @@ class FakePocoServer:
         self.delay = 0.0
         self.drop_on_next = False
         self.fail_next_request = False
+        self.request_count = 0
 
     def start(self):
         import socket
@@ -111,7 +112,7 @@ class FakePocoServer:
         while self._running:
             try:
                 method, args = read_command(conn)
-            except (ConnectionError, OSError):
+            except Exception:
                 return
             # Parse keyword arguments from args
             params = {}
@@ -155,6 +156,7 @@ class FakePocoServer:
             return
 
     def _dispatch(self, method, pos_args, kwargs):
+        self.request_count += 1
         if method == "getServerVersion":
             return "fake-1.0"
 
