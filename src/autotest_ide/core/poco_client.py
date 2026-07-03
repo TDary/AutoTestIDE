@@ -132,10 +132,14 @@ class PocoClient:
             raise PocoConnectionError("client closed")
         wire_method = self._protocol.resolve_method(method)
         future: Future = Future()
-        with self._pending_cond:
-            self._pending.append((future, expect_binary))
-            self._pending_cond.notify_all()
+        # Hold _send_lock while both appending to _pending and sending so
+        # the FIFO order of futures matches the wire order of requests.
+        # Without this, two threads can interleave append+send, causing
+        # the recv loop to match a response to the wrong future.
         with self._send_lock:
+            with self._pending_cond:
+                self._pending.append((future, expect_binary))
+                self._pending_cond.notify_all()
             try:
                 self._protocol.send_request(self._sock, wire_method, args, kwargs)
             except OSError as e:

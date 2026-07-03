@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, QSize, QTimer
@@ -50,6 +51,7 @@ class MainWindow(QMainWindow):
         self._record_controller = RecordController(self)
         self._report_view = None
         self._current_air = None
+        self._current_script = None
         self._cached_root = None
         self._cached_flat = []
         self._last_inspect_xy = (0, 0)
@@ -316,11 +318,6 @@ class MainWindow(QMainWindow):
         self._tree_refresh_btn.clicked.connect(self._on_refresh_tree)
         right_tabs.setCornerWidget(self._tree_refresh_btn, Qt.TopRightCorner)
 
-        # Auto-refresh UI tree every 10s when device is online
-        self._tree_refresh_timer = QTimer(self)
-        self._tree_refresh_timer.setInterval(10000)
-        self._tree_refresh_timer.timeout.connect(self._on_refresh_tree)
-
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(self.device_panel)
         splitter.addWidget(self.editor)
@@ -432,7 +429,6 @@ class MainWindow(QMainWindow):
         self._conn_status.setStyleSheet(
             "color: #a6e3a1; font-size: 13px; font-weight: bold; padding: 2px 8px;"
         )
-        self._tree_refresh_timer.start()
 
     def _disconnect_device(self):
         logger.info("Disconnecting device")
@@ -450,7 +446,6 @@ class MainWindow(QMainWindow):
         self._conn_status.setStyleSheet(
             "color: #f38ba8; font-size: 13px; font-weight: bold; padding: 2px 8px;"
         )
-        self._tree_refresh_timer.stop()
         self.device_panel.clear_highlight()
         self.property_panel.show_properties({})
         self.tree_panel.load_tree({"name": "", "type": "", "payload": {}, "children": []})
@@ -525,7 +520,6 @@ class MainWindow(QMainWindow):
         self._conn_status.setStyleSheet(
             "color: #a6e3a1; font-size: 13px; font-weight: bold; padding: 2px 8px;"
         )
-        self._tree_refresh_timer.start()
 
     @staticmethod
     def _probe_tcp(host: str, port: int, timeout: float = 2.0) -> str:
@@ -609,7 +603,6 @@ class MainWindow(QMainWindow):
                 self._poco_worker.quit()
                 self._poco_worker.wait(2000)
                 self._poco_worker = None
-            self._tree_refresh_timer.stop()
             self._conn_status.setText(" ● 未连接 ")
             self._conn_status.setStyleSheet(
                 "color: #f38ba8; font-size: 13px; font-weight: bold; padding: 2px 8px;"
@@ -711,6 +704,7 @@ class MainWindow(QMainWindow):
         if not script.exists():
             script.write_text("# 在此编写自动化脚本\nimport time\ntime.sleep(2)\n", encoding="utf-8")
         self._current_air = str(air_path)
+        self._current_script = None
         self.editor.setPlainText(script.read_text(encoding="utf-8"))
         self.editor.document().setModified(False)
         logger.info("New .air project: %s", air_path)
@@ -718,20 +712,19 @@ class MainWindow(QMainWindow):
     def _on_open(self):
         if not self._check_unsaved():
             return
-        air_dir = QFileDialog.getExistingDirectory(self, "打开 .air 工程", "",)
-        if not air_dir:
-            return
-        air_path = Path(air_dir)
-        script = air_path / "script.py"
-        if not script.exists():
-            QMessageBox.warning(self, "打开失败", f"目录中未找到 script.py:\n{air_dir}")
+        # 直接打开单个 .py 脚本文件
+        py_file, _ = QFileDialog.getOpenFileName(
+            self, "打开脚本文件", "", "Python 文件 (*.py);;所有文件 (*)"
+        )
+        if not py_file:
             return
         try:
-            content = script.read_text(encoding="utf-8")
+            content = Path(py_file).read_text(encoding="utf-8")
             self.editor.setPlainText(content)
-            self._current_air = str(air_path)
+            self._current_air = None
+            self._current_script = py_file
             self.editor.document().setModified(False)
-            logger.info("Opened .air project: %s", air_path)
+            logger.info("Opened script: %s", py_file)
         except Exception as e:
             QMessageBox.warning(self, "打开失败", str(e))
 
@@ -761,22 +754,26 @@ class MainWindow(QMainWindow):
 
     def _on_run_clicked(self):
         device = self._device_mgr.active
+        logger.info("_on_run_clicked: device=%s status=%s", device, getattr(device, 'status', None))
         if not device or device.status != "online":
             self.console.append_text("错误: 没有在线设备", is_error=True)
             return
-        # Save editor content to .air/script.py before running
-        air_dir = getattr(self, "_current_air", None) or "test.air"
-        air_path = Path(air_dir)
-        air_path.mkdir(exist_ok=True)
-        script = air_path / "script.py"
-        script.write_text(self.editor.toPlainText(), encoding="utf-8")
-        logger.info("Saved script to %s", script)
+        script_path = getattr(self, "_current_script", None)
+        logger.info("_on_run_clicked: _current_script=%s _current_air=%s", script_path, getattr(self, "_current_air", None))
+        if script_path:
+            Path(script_path).write_text(self.editor.toPlainText(), encoding="utf-8")
+            air_dir = str(Path(script_path).parent)
+        else:
+            air_dir = getattr(self, "_current_air", None) or "test.air"
+            Path(air_dir).mkdir(exist_ok=True)
+            script = Path(air_dir) / "script.py"
+            script.write_text(self.editor.toPlainText(), encoding="utf-8")
+        logger.info("Running: air_dir=%s script_path=%s sdk=%s", air_dir, script_path, self.sdk_combo.currentData())
         sdk = self.sdk_combo.currentData() or "jx4"
-        logger.info("Running script air_dir=%s device=%s:%s poco_port=%d sdk=%s",
-                     air_dir, device.device_type, device.name, device.poco.port, sdk)
         self._run_controller.start(
-            str(air_path), device.device_type, device.name,
+            str(air_dir), device.device_type, device.name,
             device.poco.port, sdk=sdk, device=device,
+            script_path=script_path or "",
         )
 
     def _on_stop_clicked(self):
@@ -849,17 +846,20 @@ class MainWindow(QMainWindow):
         if not self._check_unsaved():
             event.ignore()
             return
-        self._stop_screenshot_worker()
-        self._tree_refresh_timer.stop()
-        if self._poco_worker:
-            self._poco_worker.quit()
-            self._poco_worker.wait(2000)
-            self._poco_worker = None
-        if self._device_bridge:
-            self._device_bridge.deleteLater()
-            self._device_bridge = None
+        # 停止运行中的脚本线程
+        if self._run_controller:
+            self._run_controller.stop()
+        # 停止设备扫描线程
+        scan_worker = getattr(self, "_scan_worker", None)
+        if scan_worker and scan_worker.isRunning():
+            scan_worker.quit()
+            scan_worker.wait(2000)
+            self._scan_worker = None
+        # 断开设备：关 socket、停所有 Worker、停心跳
+        self._disconnect_device()
         self._device_mgr.shutdown()
         super().closeEvent(event)
+        os._exit(0)
 
     def changeEvent(self, event):
         super().changeEvent(event)

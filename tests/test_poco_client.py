@@ -192,3 +192,40 @@ def test_heartbeat_returns_false_on_closed_client(fake_server):
     client.connect()
     client.close()
     assert client.heartbeat() is False
+
+
+def test_concurrent_requests_return_correct_results(fake_server):
+    """Two threads making requests simultaneously must each get their own response."""
+    import threading
+
+    client = PocoClient(host=fake_server.host, port=fake_server.port)
+    client.connect()
+    results = {}
+    errors = []
+
+    def do_dump(key):
+        try:
+            root = client.get_root()
+            results[key] = root["name"]
+        except Exception as e:
+            errors.append((key, e))
+
+    def do_inspect(key, x, y):
+        try:
+            node = client.inspect_by_point(x, y)
+            results[key] = node["node_id"]
+        except Exception as e:
+            errors.append((key, e))
+
+    try:
+        t1 = threading.Thread(target=do_dump, args=("dump",))
+        t2 = threading.Thread(target=do_inspect, args=("inspect", 540, 960))
+        t1.start()
+        t2.start()
+        t1.join(timeout=10)
+        t2.join(timeout=10)
+        assert not errors, f"Errors in threads: {errors}"
+        assert results["dump"] == "Canvas"
+        assert results["inspect"] == "btn_play"
+    finally:
+        client.close()

@@ -1,3 +1,4 @@
+import os
 import sys
 import traceback
 
@@ -11,6 +12,9 @@ logger = getLogger(__name__)
 
 
 def main():
+    # 切走 CWD，避免锁住 exe 所在目录导致删除失败
+    os.chdir(os.path.expanduser("~"))
+
     setup_logging()
     logger.info("AutoTest IDE starting")
     try:

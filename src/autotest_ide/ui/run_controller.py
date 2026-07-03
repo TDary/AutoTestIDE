@@ -20,8 +20,11 @@ def _build_runtest_cmd(air_dir: str, device_type: str, device_serial: str,
         # There's no standalone python.exe to invoke, so we can't spawn a
         # subprocess. Instead we'll exec the script in-process (see _run_inproc).
         return None
-    else:
-        cmd = [sys.executable, "-m", "autotest_ide.runner.runtest"]
+    # JX4 only accepts one TCP client at a time — spawning a subprocess that
+    # tries to open a second connection will fail.  Force in-process mode.
+    if sdk == "jx4":
+        return None
+    cmd = [sys.executable, "-m", "autotest_ide.runner.runtest"]
 
     cmd += [
         air_dir,
@@ -48,13 +51,15 @@ class RunController(QObject):
         self._air_dir: str = ""
         self._stop_event = threading.Event()
         self._device = None  # set by start()
+        self._script_path = ""  # set by start()
 
     def start(self, air_dir: str, device_type: str, device_serial: str,
               poco_port: int, timeout: int = 600, sdk: str = "poco",
-              device=None):
+              device=None, script_path: str = ""):
         self._air_dir = air_dir
         self._stop_event.clear()
         self._device = device
+        self._script_path = script_path
         cmd = _build_runtest_cmd(
             air_dir, device_type, device_serial, poco_port, timeout, sdk,
         )
@@ -99,7 +104,7 @@ class RunController(QObject):
         else:
             # In-process run — signal stop event
             pass
-        if self._reader_thread:
+        if self._reader_thread and self._reader_thread.is_alive():
             self._reader_thread.join(timeout=3)
 
     def _read_output(self):
@@ -128,12 +133,14 @@ class RunController(QObject):
         creating a new TCP connection — JX4 only accepts one client at a time.
         """
         import io
+        import sys
         import contextlib
         from autotest_ide.runner.reporter import Reporter
         from autotest_ide.runner.recorder import RecordingPocoClient
         from autotest_ide.runner.runtime import build_namespace
 
         device = self._get_device()
+        logger.info("_run_inproc: device=%s poco=%s script_path=%s", device, getattr(device, 'poco', None), self._script_path)
         if device is None or device.poco is None:
             self.output_received.emit("ERROR: no connected device\n", True)
             self.run_finished.emit(1, "")
@@ -147,7 +154,11 @@ class RunController(QObject):
         recorder = RecordingPocoClient(poco, reporter)
         namespace = build_namespace(recorder, reporter)
 
-        script_path = Path(air_dir) / "script.py"
+        if self._script_path:
+            script_path = Path(self._script_path)
+        else:
+            script_path = Path(air_dir) / "script.py"
+        logger.info("_run_inproc: reading script from %s", script_path)
         script_src = script_path.read_text(encoding="utf-8")
 
         # Stream stdout/stderr to console in real-time
@@ -167,15 +178,28 @@ class RunController(QObject):
 
         out_stream = _StreamToSignal(self.output_received, False)
         err_stream = _StreamToSignal(self.output_received, True)
+        stop_event = self._stop_event
+
+        def _stop_tracer(frame, event, arg):
+            if stop_event.is_set():
+                raise KeyboardInterrupt("Script stopped by user")
+            return _stop_tracer
+
         status = "pass"
         try:
             with contextlib.redirect_stdout(out_stream), contextlib.redirect_stderr(err_stream):
+                sys.settrace(_stop_tracer)
                 exec(compile(script_src, str(script_path), "exec"), namespace)
+        except KeyboardInterrupt:
+            self.output_received.emit("脚本已停止\n", True)
+            status = "stopped"
         except Exception as e:
             self.output_received.emit(f"ERROR: {e}\n", True)
             import traceback
             traceback.print_exc(file=err_stream)
             status = "fail"
+        finally:
+            sys.settrace(None)
         # Don't close poco — we're reusing the IDE's existing connection
 
         reporter.finish(status, script=str(script_path))

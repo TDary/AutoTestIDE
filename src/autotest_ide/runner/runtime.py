@@ -34,6 +34,7 @@ def build_namespace(poco: RecordingPocoClient, reporter: Reporter) -> dict:
     def log(msg: str) -> None:
         reporter.step_start(f"log: {msg}")
         reporter.step_pass()
+        print(msg)
 
     return {
         "auto": poco,
