@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
 )
 
 from autotest_ide.core.log import getLogger
+from autotest_ide.core.locator import generate_locator_code
 from autotest_ide.ui.device_panel import DevicePanel
 from autotest_ide.ui.editor import Editor
 from autotest_ide.ui.icons import make_icon
@@ -637,14 +638,20 @@ class MainWindow(QMainWindow):
         if node_id:
             self.tree_panel.highlight_node(node_id)
         self.property_panel.show_properties(node.get("payload", {}))
+        x, y = getattr(self, "_last_inspect_xy", (0, 0))
         if self._record_controller.is_recording:
-            x, y = getattr(self, "_last_inspect_xy", (0, 0))
             self._record_controller.on_inspect_result(node, x, y)
+        else:
+            code = generate_locator_code(node, self._cached_flat)
+            if code:
+                self.editor.insert_locator_code(code)
 
     def _on_inspect_failed(self, error: str, x: int, y: int):
         self.console.append_warn(f"检查节点失败: {error}")
         if self._record_controller.is_recording:
             self._record_controller.on_inspect_failed(x, y)
+        else:
+            self.editor.insert_locator_code(f"auto.click({x}, {y})\n")
 
     def _on_insert_code_from_tree(self, path: str):
         self.editor.insert_locator_code(f"auto.find_and_tap('{path}')\n")

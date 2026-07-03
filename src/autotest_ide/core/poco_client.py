@@ -1,4 +1,5 @@
 import socket
+import struct
 import threading
 from collections import deque
 from concurrent.futures import Future
@@ -89,12 +90,22 @@ class PocoClient:
         with self._pending_cond:
             self._pending_cond.notify_all()
         if self._sock is not None:
-            # Let the protocol send a farewell command (e.g. JX4 CloseConnection)
-            # before we close the socket. Best-effort — never block on errors.
+            # Send farewell command so the server can clean up (JX4: CloseConnection).
+            # Best-effort — never block on errors.
             try:
                 self._protocol.before_close(self._sock)
+                # Half-close: tell server we're done writing.  This lets the
+                # server read the farewell and close its side, avoiding CLOSE_WAIT.
+                self._sock.shutdown(socket.SHUT_WR)
+                # Drain any remaining data from the server briefly.
+                self._sock.settimeout(1.0)
+                try:
+                    while self._sock.recv(4096):
+                        pass
+                except (socket.timeout, OSError):
+                    pass
             except Exception:
-                logger.debug("before_close hook failed", exc_info=True)
+                logger.debug("close/shutdown failed", exc_info=True)
             try:
                 self._sock.close()
             except OSError:
