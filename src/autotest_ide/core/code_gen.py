@@ -80,3 +80,36 @@ def gen_assert_exists(node: dict, flat_nodes: list) -> str:
     if path:
         return f"assert_exists('{path}')\n"
     return ""
+
+
+def gen_long_click(node: dict, flat_nodes: list, x: int, y: int, duration: float = 2.0) -> str:
+    """Generate long_click code (always coordinate-based)."""
+    return f"auto.long_click({x}, {y}, duration={duration})\n"
+
+
+def gen_swipe(x1: int, y1: int, x2: int, y2: int, duration: float = 0.5) -> str:
+    """Generate swipe code."""
+    if duration != 0.5:
+        return f"auto.swipe({x1}, {y1}, {x2}, {y2}, duration={duration})\n"
+    return f"auto.swipe({x1}, {y1}, {x2}, {y2})\n"
+
+
+def gen_input(node: dict, flat_nodes: list, x: int, y: int, text: str) -> str:
+    """Generate set_text code with path, or coordinate fallback."""
+    path = _build_path(node, flat_nodes)
+    if path:
+        return f"auto.set_text('{path}', '{text}')\n"
+    pos = node.get("payload", {}).get("pos", ())
+    if isinstance(pos, (list, tuple)) and len(pos) >= 2:
+        return f"auto.click({int(pos[0])}, {int(pos[1])})  # set_text fallback\n"
+    return ""
+
+
+def gen_wait_for(path: str, timeout: int = 10) -> str:
+    """Generate wait_for code."""
+    return f"wait_for('{path}', timeout={timeout})\n"
+
+
+def gen_wait_for_gone(path: str, timeout: int = 10) -> str:
+    """Generate wait_for_gone code."""
+    return f"wait_for_gone('{path}', timeout={timeout})\n"
