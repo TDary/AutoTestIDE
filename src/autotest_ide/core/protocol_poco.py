@@ -35,6 +35,12 @@ class PocoTextProtocol(PocoProtocol):
         "click": "Click",
         "set_text": "SetText",
         "screenshot": "GetScreen",
+        "long_click": "LongClick",
+        "swipe": "Swipe",
+        "drag": "dragObject",
+        "wait_for_node": "WaitForNode",
+        "wait_for_gone": "WaitForNodeDisappear",
+        "get_node_by_path": "findObject",
     }
 
     def create_connection(

@@ -291,6 +291,24 @@ class PocoClient:
     def set_text(self, node_id: str, text: str) -> dict:
         return self._request_json("set_text", node_id, text)
 
+    def long_click(self, x: int, y: int, duration: float = 2.0) -> dict:
+        return self._request_json("long_click", x, y, duration)
+
+    def swipe(self, x1: int, y1: int, x2: int, y2: int, duration: float = 0.5) -> dict:
+        return self._request_json("swipe", x1, y1, x2, y2, duration)
+
+    def drag(self, node_id: str, x2: int, y2: int) -> dict:
+        return self._request_json("drag", node_id, x2, y2)
+
+    def wait_for_node(self, path: str, timeout: float = 10.0) -> dict:
+        return self._request_json("wait_for_node", path, timeout)
+
+    def wait_for_gone(self, path: str, timeout: float = 10.0) -> dict:
+        return self._request_json("wait_for_gone", path, timeout)
+
+    def get_node_by_path(self, path: str) -> dict:
+        return self._request_json("get_node_by_path", path)
+
     def _flatten_tree(self, root: dict) -> list:
         nodes = []
         stack = [root]

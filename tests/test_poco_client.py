@@ -305,3 +305,66 @@ def test_close_invalidates_cache(fake_server):
         assert fake_server.request_count - before2 == 1
     finally:
         client2.close()
+
+
+# ── new PocoClient method tests ───────────────────────────────────────
+
+
+def test_long_click_sends_correct_request(fake_server):
+    client = PocoClient(host=fake_server.host, port=fake_server.port)
+    client.connect()
+    try:
+        result = client.long_click(540, 960, duration=2.0)
+        assert result == {}
+    finally:
+        client.close()
+
+
+def test_swipe_sends_correct_request(fake_server):
+    client = PocoClient(host=fake_server.host, port=fake_server.port)
+    client.connect()
+    try:
+        result = client.swipe(100, 200, 300, 400, duration=0.5)
+        assert result == {}
+    finally:
+        client.close()
+
+
+def test_drag_sends_correct_request(fake_server):
+    client = PocoClient(host=fake_server.host, port=fake_server.port)
+    client.connect()
+    try:
+        result = client.drag("node_1", 500, 600)
+        assert result == {}
+    finally:
+        client.close()
+
+
+def test_wait_for_node_sends_correct_request(fake_server):
+    client = PocoClient(host=fake_server.host, port=fake_server.port)
+    client.connect()
+    try:
+        result = client.wait_for_node("Panel/Btn", timeout=10.0)
+        assert result == {}
+    finally:
+        client.close()
+
+
+def test_wait_for_gone_sends_correct_request(fake_server):
+    client = PocoClient(host=fake_server.host, port=fake_server.port)
+    client.connect()
+    try:
+        result = client.wait_for_gone("Panel/Loading", timeout=10.0)
+        assert result == {}
+    finally:
+        client.close()
+
+
+def test_get_node_by_path_sends_correct_request(fake_server):
+    client = PocoClient(host=fake_server.host, port=fake_server.port)
+    client.connect()
+    try:
+        result = client.get_node_by_path("Panel/Btn")
+        assert result == {}
+    finally:
+        client.close()

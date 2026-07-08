@@ -197,6 +197,13 @@ class FakePocoServer:
             # This is a binary response — handled specially
             return None  # caller sends binary directly
 
+        # Accept all known operation methods with empty success
+        if method in ("Click", "SetText", "LongClick", "Swipe",
+                      "WaitForNode", "WaitForNodeDisappear",
+                      "dragObject", "findObject", "tap",
+                      "findObjectAndTap", "getHierarchy"):
+            return {}
+
         return {"error": {"code": -32601, "message": f"method not found: {method}"}}
 
     def _handle_screen(self, conn):
