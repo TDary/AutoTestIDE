@@ -60,3 +60,57 @@ def test_run_controller_stop_interrupts_inproc_script(qapp, tmp_path):
         sys.settrace(None)
 
     assert result["status"] == "stopped"
+
+
+from unittest.mock import MagicMock
+from autotest_ide.ui.threads import PocoWorker
+
+
+def _make_device():
+    device = MagicMock()
+    device.status = "online"
+    device.poco.screenshot.return_value = b"\x89PNG"
+    device.poco.inspect_by_point.return_value = {"name": "Btn", "node_id": "1", "payload": {}}
+    return device
+
+
+def test_poco_worker_long_press_emits_inspect_result(qtbot):
+    device = _make_device()
+    device.poco.long_click.return_value = {}
+    worker = PocoWorker(device)
+    results = []
+    fails = []
+    worker.inspect_result.connect(lambda n, s: results.append((n, s)))
+    worker.inspect_failed.connect(lambda e, x, y: fails.append((e, x, y)))
+    with qtbot.waitSignal(worker.inspect_result, timeout=5000):
+        worker.long_press(540, 960, duration=2.0)
+    worker.wait(5000)
+    assert len(results) == 1
+    device.poco.long_click.assert_called_once_with(540, 960, duration=2.0)
+
+
+def test_poco_worker_swipe_emits_swipe_done(qtbot):
+    device = _make_device()
+    device.poco.swipe.return_value = {}
+    worker = PocoWorker(device)
+    done = []
+    worker.swipe_done.connect(lambda s: done.append(s))
+    with qtbot.waitSignal(worker.swipe_done, timeout=5000):
+        worker.swipe(100, 200, 300, 400, duration=0.5)
+    worker.wait(5000)
+    assert len(done) == 1
+    device.poco.swipe.assert_called_once_with(100, 200, 300, 400, duration=0.5)
+
+
+def test_poco_worker_input_text_emits_inspect_result(qtbot):
+    device = _make_device()
+    device.poco.set_text.return_value = {}
+    worker = PocoWorker(device)
+    results = []
+    worker.inspect_result.connect(lambda n, s: results.append((n, s)))
+    with qtbot.waitSignal(worker.inspect_result, timeout=5000):
+        worker.input_text(540, 960, "hello")
+    worker.wait(5000)
+    assert len(results) == 1
+    device.poco.inspect_by_point.assert_called_once_with(540, 960)
+    device.poco.set_text.assert_called_once_with("1", "hello")
