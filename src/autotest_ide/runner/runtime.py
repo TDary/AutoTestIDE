@@ -33,6 +33,12 @@ def build_namespace(poco: RecordingPocoClient, reporter: Reporter) -> dict:
             logger.warning("assert_exists failed: %s", e)
             raise AssertionError(msg or str(e))
 
+    def wait_for(locator: str, timeout: int = 10) -> None:
+        poco.wait_for_node(locator, timeout)
+
+    def wait_for_gone(locator: str, timeout: int = 10) -> None:
+        poco.wait_for_gone(locator, timeout)
+
     def log(msg: str) -> None:
         reporter.step_start(f"log: {msg}")
         reporter.step_pass()
@@ -43,5 +49,7 @@ def build_namespace(poco: RecordingPocoClient, reporter: Reporter) -> dict:
         "By": By,
         "snapshot": snapshot,
         "assert_exists": assert_exists,
+        "wait_for": wait_for,
+        "wait_for_gone": wait_for_gone,
         "log": log,
     }
