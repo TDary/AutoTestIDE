@@ -1,6 +1,6 @@
 from PyQt5.QtCore import QObject, pyqtSignal
 
-from autotest_ide.core.locator import generate_locator_code
+from autotest_ide.core.code_gen import gen_click
 from autotest_ide.core.log import getLogger
 
 logger = getLogger(__name__)
@@ -31,7 +31,7 @@ class RecordController(QObject):
     def on_inspect_result(self, node: dict, x: int, y: int):
         if not self._recording:
             return
-        code = generate_locator_code(node, self._cached_flat)
+        code = gen_click(node, self._cached_flat, x, y)
         if not code:
             code = f"auto.click({x}, {y})\n"
         self.code_generated.emit(code)

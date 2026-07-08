@@ -28,42 +28,6 @@ def generate_locator(node: dict, all_nodes: Optional[list] = None) -> str:
     return f"poco(node_id={node_id!r})"
 
 
-def generate_locator_code(node: dict, all_nodes: Optional[list] = None) -> str:
-    """Generate an auto.find_and_tap(...) code line for IDE editor insertion.
-
-    If the node payload already carries a ``path`` (JX4 getNodeByPos),
-    use it directly.  Otherwise build an A/B/C path by walking the
-    parent chain in all_nodes.  Falls back to auto.click(x, y).
-    """
-    path = node.get("payload", {}).get("path", "")
-    if path:
-        return f"auto.find_and_tap('{path}')\n"
-
-    node_id = node.get("node_id", "")
-    if not all_nodes or not node_id:
-        return _fallback_click(node)
-
-    by_id, parent_of = _build_parent_map(all_nodes)
-    parts = []
-    current_id = node_id
-    visited = set()
-    while current_id and current_id not in visited:
-        visited.add(current_id)
-        current_node = by_id.get(current_id)
-        if current_node is None:
-            break
-        name = current_node.get("name", "")
-        if name and name != "root":
-            parts.append(name)
-        current_id = parent_of.get(current_id, "")
-
-    parts.reverse()
-    if parts:
-        path = "/".join(parts)
-        return f"auto.find_and_tap('{path}')\n"
-    return _fallback_click(node)
-
-
 def _build_parent_map(nodes: list) -> dict:
     """Map node_id -> (node dict, parent_id) without mutating input nodes."""
     flat = _flatten_nodes(nodes)
@@ -90,10 +54,3 @@ def _flatten_nodes(nodes: list) -> list:
         result.append(node)
         stack.extend(reversed(node.get("children", [])))
     return result
-
-
-def _fallback_click(node: dict) -> str:
-    bounds = node.get("payload", {}).get("pos", ())
-    if isinstance(bounds, (list, tuple)) and len(bounds) >= 2:
-        return f"auto.click({int(bounds[0])}, {int(bounds[1])})\n"
-    return ""

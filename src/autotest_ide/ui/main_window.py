@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
 )
 
 from autotest_ide.core.log import getLogger
-from autotest_ide.core.locator import generate_locator_code
+from autotest_ide.core.code_gen import gen_click
 from autotest_ide.ui.device_panel import DevicePanel
 from autotest_ide.ui.editor import Editor
 from autotest_ide.ui.icons import make_icon
@@ -643,7 +643,7 @@ class MainWindow(QMainWindow):
         if self._record_controller.is_recording:
             self._record_controller.on_inspect_result(node, x, y)
         else:
-            code = generate_locator_code(node, self._cached_flat)
+            code = gen_click(node, self._cached_flat, x, y)
             if code:
                 self.editor.insert_locator_code(code)
 
