@@ -20,6 +20,7 @@ a = Analysis(
         (str(ROOT / "src" / "autotest_ide" / "runner" / "runtest.py"), "scripts"),
         # SDK adapters — need __init__.py files for package discovery
         (str(ROOT / "src" / "autotest_ide" / "sdks"), "autotest_ide/sdks"),
+        (str(ROOT / "src" / "autotest_ide" / "sdks" / "jx4"), "autotest_ide/sdks/jx4"),
     ],
     hiddenimports=[
         "autotest_ide",
@@ -34,6 +35,7 @@ a = Analysis(
         "autotest_ide.core.device",
         "autotest_ide.core.device_manager",
         "autotest_ide.core.locator",
+        "autotest_ide.core.code_gen",
         "autotest_ide.core.report_model",
         "autotest_ide.ui.main_window",
         "autotest_ide.ui.device_panel",
@@ -41,8 +43,10 @@ a = Analysis(
         "autotest_ide.ui.tree_panel",
         "autotest_ide.ui.property_panel",
         "autotest_ide.ui.console",
+        "autotest_ide.ui.clickable_panel",
         "autotest_ide.ui.threads",
         "autotest_ide.ui.run_controller",
+        "autotest_ide.ui.record_controller",
         "autotest_ide.ui.report_view",
         "autotest_ide.ui.icons",
         "autotest_ide.ui.style",
