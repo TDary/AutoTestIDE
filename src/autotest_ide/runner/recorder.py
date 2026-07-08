@@ -80,6 +80,76 @@ class RecordingPocoClient:
             self._reporter.step_fail(error=str(e), screenshot=shot)
             raise
 
+    def long_click(self, x: int, y: int, duration: float = 2.0):
+        self._reporter.step_start(f"long_click({x}, {y}, duration={duration})")
+        try:
+            self._inner.long_click(x, y, duration=duration)
+            self._reporter.step_pass(screenshot=self._inner.screenshot())
+        except Exception as e:
+            try:
+                shot = self._inner.screenshot()
+            except Exception:
+                logger.warning("Screenshot fallback failed after long_click error", exc_info=True)
+                shot = b""
+            self._reporter.step_fail(error=str(e), screenshot=shot)
+            raise
+
+    def swipe(self, x1: int, y1: int, x2: int, y2: int, duration: float = 0.5):
+        self._reporter.step_start(f"swipe({x1}, {y1}, {x2}, {y2}, duration={duration})")
+        try:
+            self._inner.swipe(x1, y1, x2, y2, duration=duration)
+            self._reporter.step_pass(screenshot=self._inner.screenshot())
+        except Exception as e:
+            try:
+                shot = self._inner.screenshot()
+            except Exception:
+                logger.warning("Screenshot fallback failed after swipe error", exc_info=True)
+                shot = b""
+            self._reporter.step_fail(error=str(e), screenshot=shot)
+            raise
+
+    def drag(self, node_id: str, x2: int, y2: int):
+        self._reporter.step_start(f"drag({node_id!r}, {x2}, {y2})")
+        try:
+            self._inner.drag(node_id, x2, y2)
+            self._reporter.step_pass(screenshot=self._inner.screenshot())
+        except Exception as e:
+            try:
+                shot = self._inner.screenshot()
+            except Exception:
+                logger.warning("Screenshot fallback failed after drag error", exc_info=True)
+                shot = b""
+            self._reporter.step_fail(error=str(e), screenshot=shot)
+            raise
+
+    def wait_for_node(self, path: str, timeout: float = 10.0):
+        self._reporter.step_start(f"wait_for_node({path!r}, timeout={timeout})")
+        try:
+            self._inner.wait_for_node(path, timeout=timeout)
+            self._reporter.step_pass(screenshot=self._inner.screenshot())
+        except Exception as e:
+            try:
+                shot = self._inner.screenshot()
+            except Exception:
+                logger.warning("Screenshot fallback failed after wait_for_node error", exc_info=True)
+                shot = b""
+            self._reporter.step_fail(error=str(e), screenshot=shot)
+            raise
+
+    def wait_for_gone(self, path: str, timeout: float = 10.0):
+        self._reporter.step_start(f"wait_for_gone({path!r}, timeout={timeout})")
+        try:
+            self._inner.wait_for_gone(path, timeout=timeout)
+            self._reporter.step_pass(screenshot=self._inner.screenshot())
+        except Exception as e:
+            try:
+                shot = self._inner.screenshot()
+            except Exception:
+                logger.warning("Screenshot fallback failed after wait_for_gone error", exc_info=True)
+                shot = b""
+            self._reporter.step_fail(error=str(e), screenshot=shot)
+            raise
+
     def __getattr__(self, name):
         if name.startswith("_"):
             raise AttributeError(name)
