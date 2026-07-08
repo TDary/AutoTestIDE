@@ -1,0 +1,82 @@
+"""Code generation for AutoTest IDE script editor.
+
+Produces Python script lines (auto.find_and_tap, auto.click, assert_exists, etc.)
+from UI node dicts.  Reuses parent-map helpers from locator.py.
+"""
+
+from enum import Enum
+
+from autotest_ide.core.locator import _build_parent_map, _flatten_nodes
+
+
+class OpMode(Enum):
+    """Operation modes supported by the code generator."""
+    CLICK = "click"
+    LONG_PRESS = "long_click"
+    SWIPE = "swipe"
+    INPUT = "set_text"
+
+
+def _build_path(node: dict, all_nodes: list) -> str:
+    """Walk the parent chain and return a slash-separated path string.
+
+    If *node* already carries ``payload.path`` (JX4 getNodeByPos case),
+    return it directly.  Otherwise build A/B/C from the parent map.
+    Returns empty string when no path can be constructed.
+    """
+    # JX4 shortcut: path already embedded in payload
+    path = node.get("payload", {}).get("path", "")
+    if path:
+        return path
+
+    node_id = node.get("node_id", "")
+    if not all_nodes or not node_id:
+        return ""
+
+    by_id, parent_of = _build_parent_map(all_nodes)
+    parts = []
+    current_id = node_id
+    visited = set()
+    while current_id and current_id not in visited:
+        visited.add(current_id)
+        current_node = by_id.get(current_id)
+        if current_node is None:
+            break
+        name = current_node.get("name", "")
+        if name and name != "root":
+            parts.append(name)
+        current_id = parent_of.get(current_id, "")
+
+    parts.reverse()
+    return "/".join(parts) if parts else ""
+
+
+def gen_click(node: dict, flat_nodes: list, x: int, y: int) -> str:
+    """Generate a click/tap code line.
+
+    Priority:
+      1. If a slash-path can be built, emit ``auto.find_and_tap('path')``.
+      2. Else if node has ``payload.pos``, emit ``auto.click(x, y)``.
+      3. Otherwise return empty string.
+    """
+    path = _build_path(node, flat_nodes)
+    if path:
+        return f"auto.find_and_tap('{path}')\n"
+
+    pos = node.get("payload", {}).get("pos", ())
+    if isinstance(pos, (list, tuple)) and len(pos) >= 2:
+        return f"auto.click({int(pos[0])}, {int(pos[1])})\n"
+
+    return ""
+
+
+def gen_assert_exists(node: dict, flat_nodes: list) -> str:
+    """Generate an assert_exists code line.
+
+    Returns ``assert_exists('path')\\n`` if a path can be built,
+    otherwise empty string.
+    """
+    path = _build_path(node, flat_nodes)
+    if path:
+        return f"assert_exists('{path}')\n"
+    return ""
