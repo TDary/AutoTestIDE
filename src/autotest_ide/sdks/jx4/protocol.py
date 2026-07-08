@@ -124,6 +124,13 @@ class JX4Protocol(PocoProtocol):
         "get_server_version": "getServerVersion",
         # getScreen returns screen size JSON (width/height).
         "get_screen_size": "getScreen",
+        # --- new mappings ---
+        "long_click":        "LongClick",
+        "swipe":             "Swipe",
+        "wait_for_node":     "WaitForNode",
+        "wait_for_gone":     "WaitForNodeDisappear",
+        "drag":              "dragObject",
+        "get_node_by_path":  "findObject",
     }
 
     # ── PocoProtocol interface ──────────────────────────────────

@@ -228,6 +228,56 @@ def test_convert_jx4_node_text_in_payload():
     assert result["payload"]["text"] == "Hello"
 
 
+def test_method_map_long_click():
+    p = JX4Protocol()
+    assert p.resolve_method("long_click") == "LongClick"
+
+
+def test_method_map_swipe():
+    p = JX4Protocol()
+    assert p.resolve_method("swipe") == "Swipe"
+
+
+def test_method_map_wait_for_node():
+    p = JX4Protocol()
+    assert p.resolve_method("wait_for_node") == "WaitForNode"
+
+
+def test_method_map_wait_for_gone():
+    p = JX4Protocol()
+    assert p.resolve_method("wait_for_gone") == "WaitForNodeDisappear"
+
+
+def test_method_map_drag():
+    p = JX4Protocol()
+    assert p.resolve_method("drag") == "dragObject"
+
+
+def test_method_map_get_node_by_path():
+    p = JX4Protocol()
+    assert p.resolve_method("get_node_by_path") == "findObject"
+
+
+def test_encode_long_click():
+    data = _encode_request("LongClick", (540, 960, 2.0), {})
+    assert data == b"LongClick;540;960;2.0;&"
+
+
+def test_encode_swipe():
+    data = _encode_request("Swipe", (100, 200, 300, 400, 0.5), {})
+    assert data == b"Swipe;100;200;300;400;0.5;&"
+
+
+def test_encode_wait_for_node():
+    data = _encode_request("WaitForNode", ("Panel/Btn", 10.0), {})
+    assert data == b"WaitForNode;Panel/Btn;10.0;&"
+
+
+def test_encode_find_object():
+    data = _encode_request("findObject", ("path", "Panel/Btn"), {})
+    assert data == b"findObject;path;Panel/Btn;&"
+
+
 def test_capture_screenshot_returns_png():
     p = JX4Protocol()
     data = p.capture_screenshot()
