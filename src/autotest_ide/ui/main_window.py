@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
 )
 
 from autotest_ide.core.log import getLogger
-from autotest_ide.core.code_gen import gen_click
+from autotest_ide.core.code_gen import OpMode, gen_click, gen_assert_exists, gen_long_click, gen_input, gen_swipe
 from autotest_ide.ui.device_panel import DevicePanel
 from autotest_ide.ui.editor import Editor
 from autotest_ide.ui.icons import make_icon
@@ -56,6 +56,8 @@ class MainWindow(QMainWindow):
         self._cached_root = None
         self._cached_flat = []
         self._last_inspect_xy = (0, 0)
+        self._last_swipe_xy = (0, 0, 0, 0)
+        self._last_input_text = ""
 
         self._init_titlebar()
         self._build_menu()
@@ -345,6 +347,9 @@ class MainWindow(QMainWindow):
 
     def _init_connections(self):
         self.device_panel.inspect_requested.connect(self._on_inspect_requested)
+        self.device_panel.long_press_requested.connect(self._on_long_press_requested)
+        self.device_panel.swipe_requested.connect(self._on_swipe_requested)
+        self.device_panel.input_text_requested.connect(self._on_input_text_requested)
         self.tree_panel.selectionModel().selectionChanged.connect(self._on_tree_selection_changed)
         self.tree_panel.insert_code_requested.connect(self._on_insert_code_from_tree)
         self.clickable_panel.node_selected.connect(self._on_clickable_node_selected)
@@ -422,6 +427,7 @@ class MainWindow(QMainWindow):
         self._poco_worker = PocoWorker(device, self)
         self._poco_worker.inspect_result.connect(self._on_inspect_result)
         self._poco_worker.inspect_failed.connect(self._on_inspect_failed)
+        self._poco_worker.swipe_done.connect(self._on_swipe_done)
 
         self._start_screenshot_worker(device)
         self._cached_root = device.poco.get_root()
@@ -517,6 +523,7 @@ class MainWindow(QMainWindow):
         self._poco_worker = PocoWorker(device, self)
         self._poco_worker.inspect_result.connect(self._on_inspect_result)
         self._poco_worker.inspect_failed.connect(self._on_inspect_failed)
+        self._poco_worker.swipe_done.connect(self._on_swipe_done)
 
         self._start_screenshot_worker(device)
         self._cached_root = device.poco.get_root()
@@ -640,19 +647,82 @@ class MainWindow(QMainWindow):
             self.tree_panel.highlight_node(node_id)
         self.property_panel.show_properties(node.get("payload", {}))
         x, y = getattr(self, "_last_inspect_xy", (0, 0))
+        op_mode = self.device_panel.op_mode
+        text = self._last_input_text
         if self._record_controller.is_recording:
-            self._record_controller.on_inspect_result(node, x, y)
+            self._record_controller.on_inspect_result(node, x, y, op_mode, text=text)
         else:
-            code = gen_click(node, self._cached_flat, x, y)
+            if op_mode == OpMode.CLICK:
+                code = gen_click(node, self._cached_flat, x, y)
+            elif op_mode == OpMode.LONG_PRESS:
+                code = gen_long_click(node, self._cached_flat, x, y)
+            elif op_mode == OpMode.INPUT:
+                code = gen_input(node, self._cached_flat, x, y, text)
+            else:
+                code = gen_click(node, self._cached_flat, x, y)
             if code:
                 self.editor.insert_locator_code(code)
 
     def _on_inspect_failed(self, error: str, x: int, y: int):
         self.console.append_warn(f"检查节点失败: {error}")
+        op_mode = self.device_panel.op_mode
+        text = self._last_input_text
         if self._record_controller.is_recording:
-            self._record_controller.on_inspect_failed(x, y)
+            self._record_controller.on_inspect_failed(x, y, op_mode, text=text)
         else:
-            self.editor.insert_locator_code(f"auto.click({x}, {y})\n")
+            if op_mode == OpMode.LONG_PRESS:
+                self.editor.insert_locator_code(f"auto.long_click({x}, {y})\n")
+            elif op_mode == OpMode.INPUT:
+                self.editor.insert_locator_code(f"auto.click({x}, {y})  # set_text fallback\n")
+            else:
+                self.editor.insert_locator_code(f"auto.click({x}, {y})\n")
+
+    def _on_long_press_requested(self, x: int, y: int):
+        device = self._device_mgr.active
+        if not device or device.status != "online":
+            return
+        self.status_coords.setText(f"  坐标: ({x}, {y})  ")
+        self._last_inspect_xy = (x, y)
+        if self._poco_worker and not self._poco_worker.isRunning():
+            self._poco_worker.long_press(x, y, duration=2.0)
+        else:
+            self._on_inspect_failed("inspect worker busy or unavailable", x, y)
+
+    def _on_swipe_requested(self, x1: int, y1: int, x2: int, y2: int):
+        device = self._device_mgr.active
+        if not device or device.status != "online":
+            return
+        self.status_coords.setText(f"  坐标: ({x1},{y1})→({x2},{y2})  ")
+        self._last_swipe_xy = (x1, y1, x2, y2)
+        if self._poco_worker and not self._poco_worker.isRunning():
+            self._poco_worker.swipe(x1, y1, x2, y2, duration=0.5)
+        else:
+            self.console.append_warn("滑动操作失败: worker 忙碌")
+
+    def _on_input_text_requested(self, x: int, y: int):
+        device = self._device_mgr.active
+        if not device or device.status != "online":
+            return
+        text, ok = QInputDialog.getText(self, "输入文本", "请输入要设置的文本:")
+        if not ok or not text:
+            return
+        self._last_input_text = text
+        self.status_coords.setText(f"  坐标: ({x}, {y})  ")
+        self._last_inspect_xy = (x, y)
+        if self._poco_worker and not self._poco_worker.isRunning():
+            self._poco_worker.input_text(x, y, text)
+        else:
+            self._on_inspect_failed("inspect worker busy or unavailable", x, y)
+
+    def _on_swipe_done(self, screenshot: bytes):
+        self.device_panel.update_screenshot(screenshot)
+        x1, y1, x2, y2 = self._last_swipe_xy
+        code = gen_swipe(x1, y1, x2, y2)
+        if self._record_controller.is_recording:
+            self._record_controller.on_swipe_done(x1, y1, x2, y2)
+        else:
+            if code:
+                self.editor.insert_locator_code(code)
 
     def _on_insert_code_from_tree(self, path: str):
         self.editor.insert_locator_code(f"auto.find_and_tap('{path}')\n")
