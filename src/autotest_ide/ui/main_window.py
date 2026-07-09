@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
 from autotest_ide.core.log import getLogger
 from autotest_ide.core.code_gen import OpMode
 from autotest_ide.core.device import DeviceState
-from autotest_ide.core.network import probe_tcp, diagnose_handshake_failure
+from autotest_ide.core.network import probe_tcp
 from autotest_ide.ui.device_panel import DevicePanel
 from autotest_ide.ui.editor import Editor
 from autotest_ide.ui.icons import make_icon
@@ -22,7 +22,8 @@ from autotest_ide.ui.tree_panel import TreePanel
 from autotest_ide.ui.property_panel import PropertyPanel
 from autotest_ide.ui.console import Console
 from autotest_ide.ui.clickable_panel import ClickablePanel
-from autotest_ide.ui.threads import ScreenshotWorker, PocoWorker, DeviceBridge, DeviceScanWorker
+from autotest_ide.ui.threads import DeviceScanWorker
+from autotest_ide.ui.connection_controller import ConnectionController
 from autotest_ide.ui.run_controller import RunController
 from autotest_ide.ui.code_gen_service import CodeGenService
 from autotest_ide.ui.report_view import ReportView
@@ -46,16 +47,12 @@ class MainWindow(QMainWindow):
         self.setMouseTracking(True)
 
         self._device_mgr = DeviceManager()
-        self._screenshot_worker = None
-        self._poco_worker = None
-        self._device_bridge = None
+        self._conn_ctrl = ConnectionController(self._device_mgr, self)
         self._run_controller = RunController(self)
         self._code_gen_service = CodeGenService(self)
         self._report_view = None
         self._current_air = None
         self._current_script = None
-        self._cached_root = None
-        self._cached_flat = []
         self._last_inspect_xy = (0, 0)
         self._last_swipe_xy = (0, 0, 0, 0)
         self._last_input_text = ""
@@ -347,6 +344,19 @@ class MainWindow(QMainWindow):
         status.addPermanentWidget(self.status_coords)
 
     def _init_connections(self):
+        # ConnectionController signals
+        cc = self._conn_ctrl
+        cc.device_connected.connect(self._on_device_connected_ui)
+        cc.device_disconnected.connect(self._on_device_disconnected_ui)
+        cc.status_changed.connect(self._on_device_status_changed)
+        cc.inspect_result.connect(self._on_inspect_result)
+        cc.inspect_failed.connect(self._on_inspect_failed)
+        cc.swipe_done.connect(self._on_swipe_done)
+        cc.screenshot_ready.connect(self.device_panel.update_screenshot)
+        cc.tree_loaded.connect(self._on_tree_loaded)
+        cc.connection_failed.connect(self._on_connection_failed)
+
+        # Device panel requests
         self.device_panel.inspect_requested.connect(self._on_inspect_requested)
         self.device_panel.long_press_requested.connect(self._on_long_press_requested)
         self.device_panel.swipe_requested.connect(self._on_swipe_requested)
@@ -402,44 +412,21 @@ class MainWindow(QMainWindow):
             return
         self._disconnect_device()
         sdk_name = self.sdk_combo.currentData() or "jx4"
-        protocol = self._load_protocol(sdk_name)
         logger.info("Connecting device kind=%s identifier=%s sdk=%s", kind, identifier, sdk_name)
-        try:
-            if kind == "android":
-                device = self._device_mgr.connect_android(serial=identifier, protocol=protocol)
-            else:
-                device = self._device_mgr.connect_local(port=identifier, protocol=protocol)
-        except Exception as e:
-            QMessageBox.warning(self, "连接失败", f"无法连接设备\n{e}")
-            return
+        if kind == "android":
+            self._conn_ctrl.connect_android(serial=identifier, sdk_name=sdk_name)
+        else:
+            self._conn_ctrl.connect_local(port=identifier, sdk_name=sdk_name)
 
-        if device.status != DeviceState.ONLINE:
-            err = device.last_error or "未知错误"
-            QMessageBox.warning(
-                self, "连接失败",
-                f"设备状态: {device.status.value}\n\n错误: {err}",
-            )
-            self._disconnect_device()
-            return
-
-        self._on_device_connected(device)
-
-    def _on_device_connected(self, device):
-        """Shared post-connection setup: workers, UI tree, status indicators."""
-        self._device_bridge = DeviceBridge(device)
-        self._device_bridge.status_changed.connect(self._on_device_status_changed)
-
-        self._poco_worker = PocoWorker(device, self)
-        self._poco_worker.inspect_result.connect(self._on_inspect_result)
-        self._poco_worker.inspect_failed.connect(self._on_inspect_failed)
-        self._poco_worker.swipe_done.connect(self._on_swipe_done)
-
-        self._start_screenshot_worker(device)
-        self._cached_root = device.poco.get_root()
-        self._cached_flat = device.poco._flatten_tree(self._cached_root)
-        self.tree_panel.load_tree(self._cached_root)
-        self.clickable_panel.set_device(device)
-        self.clickable_panel.load_clickable_nodes(self._cached_flat)
+    def _on_device_connected_ui(self, device):
+        """UI updates after ConnectionController reports device connected."""
+        root = self._conn_ctrl.cached_root
+        if root:
+            self.tree_panel.load_tree(root)
+        flat = self._conn_ctrl.cached_flat
+        if flat:
+            self.clickable_panel.set_device(device)
+            self.clickable_panel.load_clickable_nodes(flat)
         self.status_device.setText(f"  设备: {device.name}  ")
         sdk = self.sdk_combo.currentData() or "jx4"
         self.status_protocol.setText(f"  协议: {device.poco.protocol_version or '-'} ({sdk})  ")
@@ -448,16 +435,8 @@ class MainWindow(QMainWindow):
             "color: #a6e3a1; font-size: 13px; font-weight: bold; padding: 2px 8px;"
         )
 
-    def _disconnect_device(self):
-        logger.info("Disconnecting device")
-        self._stop_screenshot_worker()
-        if self._poco_worker:
-            self._poco_worker.quit()
-            self._poco_worker.wait(2000)
-            self._poco_worker = None
-        self._device_mgr.disconnect_active()
-        self._cached_root = None
-        self._cached_flat = []
+    def _on_device_disconnected_ui(self):
+        """UI updates after ConnectionController reports device disconnected."""
         self.status_device.setText("  设备: 未连接  ")
         self.status_protocol.setText("  协议: -  ")
         self._conn_status.setText(" ● 未连接 ")
@@ -469,6 +448,25 @@ class MainWindow(QMainWindow):
         self.tree_panel.load_tree({"name": "", "type": "", "payload": {}, "children": []})
         self.clickable_panel.set_device(None)
         self.clickable_panel.clear()
+
+    def _on_tree_loaded(self, flat_nodes: list):
+        """Handle tree data loaded by ConnectionController."""
+        root = self._conn_ctrl.cached_root
+        if root:
+            self.tree_panel.load_tree(root)
+        device = self._conn_ctrl.active_device
+        if device:
+            self.clickable_panel.set_device(device)
+        self.clickable_panel.load_clickable_nodes(flat_nodes)
+
+    def _on_connection_failed(self, error_msg: str):
+        """Show connection failure dialog."""
+        from PyQt5.QtWidgets import QMessageBox
+        QMessageBox.warning(self, "连接失败", f"无法连接设备\n{error_msg}")
+
+    def _disconnect_device(self):
+        logger.info("Disconnecting device")
+        self._conn_ctrl.disconnect()
 
     def _connect_ip_device(self):
         text, ok = QInputDialog.getText(
@@ -501,54 +499,15 @@ class MainWindow(QMainWindow):
 
         self._disconnect_device()
         sdk_name = self.sdk_combo.currentData() or "jx4"
-        protocol = self._load_protocol(sdk_name)
         logger.info("Connecting IP device host=%s port=%d sdk=%s", host, port, sdk_name)
-        try:
-            device = self._device_mgr.connect_ip(host=host, port=port, protocol=protocol)
-        except Exception as e:
-            logger.warning("IP connection failed: %s", e, exc_info=True)
-            QMessageBox.warning(self, "连接失败", f"无法连接 {host}:{port}\n{e}")
-            return
-
-        if device.status != DeviceState.ONLINE:
-            err = device.last_error or "未知错误"
-            hint = diagnose_handshake_failure(err, sdk_name)
-            QMessageBox.warning(
-                self, "Poco 握手失败",
-                f"TCP 已连通 {host}:{port}，但 Poco 协议握手失败。\n\n"
-                f"错误: {err}\n\n"
-                f"{hint}",
-            )
-            self._disconnect_device()
-            return
-
-        self._on_device_connected(device)
-
-    @staticmethod
-    def _load_protocol(sdk_name: str):
-        from autotest_ide.sdks import load_protocol
-        try:
-            return load_protocol(sdk_name)
-        except ValueError:
-            return load_protocol("jx4")
-
-    def _start_screenshot_worker(self, device):
-        self._stop_screenshot_worker()
-        self._screenshot_worker = ScreenshotWorker(device, fps=5)
-        self._screenshot_worker.screenshot_ready.connect(self.device_panel.update_screenshot)
-        self._screenshot_worker.start()
-
-    def _stop_screenshot_worker(self):
-        if self._screenshot_worker:
-            self._screenshot_worker.stop()
-            self._screenshot_worker = None
+        self._conn_ctrl.connect_ip(host=host, port=port, sdk_name=sdk_name)
 
     def _on_device_status_changed(self, status):
         self.status_device.setText(f"  设备: {status}  ")
-        device = self._device_mgr.active
+        device = self._conn_ctrl.active_device
         if device and status == DeviceState.ONLINE.value:
-            if not self._screenshot_worker:
-                self._start_screenshot_worker(device)
+            if not self._conn_ctrl.has_screenshot_worker:
+                self._conn_ctrl.restart_screenshot(device)
             if device.poco:
                 sdk = self.sdk_combo.currentData() or "jx4"
                 self.status_protocol.setText(f"  协议: {device.poco.protocol_version or '-'} ({sdk})  ")
@@ -557,24 +516,21 @@ class MainWindow(QMainWindow):
                 "color: #a6e3a1; font-size: 13px; font-weight: bold; padding: 2px 8px;"
             )
         elif status in (DeviceState.OFFLINE.value, DeviceState.DISCONNECTED.value):
-            self._stop_screenshot_worker()
-            if self._poco_worker:
-                self._poco_worker.quit()
-                self._poco_worker.wait(2000)
-                self._poco_worker = None
+            self._conn_ctrl.stop_workers_for_offline()
             self._conn_status.setText(" ● 未连接 ")
             self._conn_status.setStyleSheet(
                 "color: #f38ba8; font-size: 13px; font-weight: bold; padding: 2px 8px;"
             )
 
     def _on_inspect_requested(self, x: int, y: int):
-        device = self._device_mgr.active
+        device = self._conn_ctrl.active_device
         if not device or device.status != DeviceState.ONLINE:
             return
         self.status_coords.setText(f"  坐标: ({x}, {y})  ")
         self._last_inspect_xy = (x, y)
-        if self._poco_worker and not self._poco_worker.isRunning():
-            self._poco_worker.inspect(x, y)
+        pw = self._conn_ctrl.poco_worker
+        if pw and not pw.isRunning():
+            pw.inspect(x, y)
         else:
             self._on_inspect_failed("inspect worker busy or unavailable", x, y)
 
@@ -590,7 +546,7 @@ class MainWindow(QMainWindow):
         x, y = getattr(self, "_last_inspect_xy", (0, 0))
         op_mode = self.device_panel.op_mode
         text = self._last_input_text
-        self._code_gen_service.on_inspect_result(node, self._cached_flat, x, y, op_mode, text)
+        self._code_gen_service.on_inspect_result(node, self._conn_ctrl.cached_flat, x, y, op_mode, text)
 
     def _on_inspect_failed(self, error: str, x: int, y: int):
         self.console.append_warn(f"检查节点失败: {error}")
@@ -599,29 +555,31 @@ class MainWindow(QMainWindow):
         self._code_gen_service.on_inspect_failed(x, y, op_mode, text)
 
     def _on_long_press_requested(self, x: int, y: int):
-        device = self._device_mgr.active
+        device = self._conn_ctrl.active_device
         if not device or device.status != DeviceState.ONLINE:
             return
         self.status_coords.setText(f"  坐标: ({x}, {y})  ")
         self._last_inspect_xy = (x, y)
-        if self._poco_worker and not self._poco_worker.isRunning():
-            self._poco_worker.long_press(x, y, duration=2.0)
+        pw = self._conn_ctrl.poco_worker
+        if pw and not pw.isRunning():
+            pw.long_press(x, y, duration=2.0)
         else:
             self._on_inspect_failed("inspect worker busy or unavailable", x, y)
 
     def _on_swipe_requested(self, x1: int, y1: int, x2: int, y2: int):
-        device = self._device_mgr.active
+        device = self._conn_ctrl.active_device
         if not device or device.status != DeviceState.ONLINE:
             return
         self.status_coords.setText(f"  坐标: ({x1},{y1})→({x2},{y2})  ")
         self._last_swipe_xy = (x1, y1, x2, y2)
-        if self._poco_worker and not self._poco_worker.isRunning():
-            self._poco_worker.swipe(x1, y1, x2, y2, duration=0.5)
+        pw = self._conn_ctrl.poco_worker
+        if pw and not pw.isRunning():
+            pw.swipe(x1, y1, x2, y2, duration=0.5)
         else:
             self.console.append_warn("滑动操作失败: worker 忙碌")
 
     def _on_input_text_requested(self, x: int, y: int):
-        device = self._device_mgr.active
+        device = self._conn_ctrl.active_device
         if not device or device.status != DeviceState.ONLINE:
             return
         text, ok = QInputDialog.getText(self, "输入文本", "请输入要设置的文本:")
@@ -630,8 +588,9 @@ class MainWindow(QMainWindow):
         self._last_input_text = text
         self.status_coords.setText(f"  坐标: ({x}, {y})  ")
         self._last_inspect_xy = (x, y)
-        if self._poco_worker and not self._poco_worker.isRunning():
-            self._poco_worker.input_text(x, y, text)
+        pw = self._conn_ctrl.poco_worker
+        if pw and not pw.isRunning():
+            pw.input_text(x, y, text)
         else:
             self._on_inspect_failed("inspect worker busy or unavailable", x, y)
 
@@ -644,15 +603,17 @@ class MainWindow(QMainWindow):
         self.editor.insert_locator_code(f"auto.find_and_tap('{path}')\n")
 
     def _on_refresh_tree(self):
-        device = self._device_mgr.active
+        device = self._conn_ctrl.active_device
         if not device or device.status != DeviceState.ONLINE:
             return
         try:
-            self._cached_root = device.poco.get_root()
-            self._cached_flat = device.poco._flatten_tree(self._cached_root)
-            self.tree_panel.load_tree(self._cached_root)
+            self._conn_ctrl.load_tree()
+            root = self._conn_ctrl.cached_root
+            if root:
+                self.tree_panel.load_tree(root)
+            flat = self._conn_ctrl.cached_flat
             self.clickable_panel.set_device(device)
-            self.clickable_panel.load_clickable_nodes(self._cached_flat)
+            self.clickable_panel.load_clickable_nodes(flat)
             logger.info("UI tree refreshed")
         except Exception as e:
             logger.warning("Failed to refresh tree: %s", e)
@@ -663,7 +624,7 @@ class MainWindow(QMainWindow):
         if node_data:
             node_id = node_data.get("node_id", "")
             if node_id and node_id != "root":
-                device = self._device_mgr.active
+                device = self._conn_ctrl.active_device
                 if device and device.status == DeviceState.ONLINE:
                     try:
                         attrs = device.poco.get_attributes(node_id)
@@ -678,13 +639,13 @@ class MainWindow(QMainWindow):
     def _on_clickable_node_selected(self, node_id: str):
         if node_id:
             self.tree_panel.highlight_node(node_id)
-        device = self._device_mgr.active
+        device = self._conn_ctrl.active_device
         if node_id and node_id != "root" and device and device.status == DeviceState.ONLINE:
             try:
                 attrs = device.poco.get_attributes(node_id)
                 self.property_panel.show_properties(attrs)
             except Exception:
-                node = next((n for n in self._cached_flat if n.get("node_id") == node_id), None)
+                node = next((n for n in self._conn_ctrl.cached_flat if n.get("node_id") == node_id), None)
                 if node:
                     self.property_panel.show_properties(node.get("payload", {}))
                 else:
@@ -778,7 +739,7 @@ class MainWindow(QMainWindow):
                           "使用 PyQt5 构建")
 
     def _on_run_clicked(self):
-        device = self._device_mgr.active
+        device = self._conn_ctrl.active_device
         logger.info("_on_run_clicked: device=%s status=%s", device, getattr(device, 'status', None))
         if not device or device.status != DeviceState.ONLINE:
             self.console.append_text("错误: 没有在线设备", is_error=True)
@@ -838,12 +799,11 @@ class MainWindow(QMainWindow):
         self.device_panel.setEnabled(True)
 
     def _on_record_clicked(self):
-        if not self._cached_flat:
-            device = self._device_mgr.active
+        if not self._conn_ctrl.cached_flat:
+            device = self._conn_ctrl.active_device
             if device and device.status == DeviceState.ONLINE:
                 try:
-                    self._cached_root = device.poco.get_root()
-                    self._cached_flat = device.poco._flatten_tree(self._cached_root)
+                    self._conn_ctrl.load_tree()
                 except Exception as e:
                     self.console.append_warn(f"刷新 UI 树失败: {e}")
                     return
