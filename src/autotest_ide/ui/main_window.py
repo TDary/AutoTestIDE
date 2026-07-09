@@ -1,6 +1,7 @@
 from pathlib import Path
+import threading
 
-from PyQt5.QtCore import Qt, QSize, QTimer
+from PyQt5.QtCore import Qt, QSize, QTimer, pyqtSignal
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout,
@@ -34,6 +35,8 @@ logger = getLogger(__name__)
 
 
 class MainWindow(QMainWindow):
+    _attrs_ready = pyqtSignal(dict)  # async get_attributes result → property panel
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("AutoTest IDE")
@@ -371,6 +374,7 @@ class MainWindow(QMainWindow):
         self._run_controller.run_finished.connect(self._on_run_finished)
         self._run_controller.run_stopped.connect(self._on_run_stopped)
         self._code_gen_service.code_insert_requested.connect(self.editor.insert_locator_code)
+        self._attrs_ready.connect(self.property_panel.show_properties)
 
     def _refresh_devices(self):
         self._refresh_btn.setEnabled(False)
@@ -624,37 +628,47 @@ class MainWindow(QMainWindow):
 
     def _on_tree_selection_changed(self):
         node_data = self.tree_panel.get_selected_node_data()
-        if node_data:
-            node_id = node_data.get("node_id", "")
-            if node_id and node_id != "root":
-                device = self._conn_ctrl.active_device
-                if device and device.status == DeviceState.ONLINE:
-                    try:
-                        attrs = device.poco.get_attributes(node_id)
-                        self.property_panel.show_properties(attrs)
-                    except Exception:
-                        self.property_panel.show_properties(node_data)
-            else:
-                self.property_panel.show_properties(node_data)
-        else:
+        if not node_data:
             self.property_panel.show_properties({})
+            return
+        node_id = node_data.get("node_id", "")
+        if not node_id or node_id == "root":
+            self.property_panel.show_properties(node_data)
+            return
+        device = self._conn_ctrl.active_device
+        if not device or device.status != DeviceState.ONLINE:
+            self.property_panel.show_properties(node_data)
+            return
+        # Show cached payload immediately, then fetch full attributes in background
+        self.property_panel.show_properties(node_data)
+        threading.Thread(
+            target=self._fetch_attrs,
+            args=(device, node_id, node_data),
+            daemon=True,
+        ).start()
 
     def _on_clickable_node_selected(self, node_id: str):
         if node_id:
             self.tree_panel.highlight_node(node_id)
         device = self._conn_ctrl.active_device
-        if node_id and node_id != "root" and device and device.status == DeviceState.ONLINE:
-            try:
-                attrs = device.poco.get_attributes(node_id)
-                self.property_panel.show_properties(attrs)
-            except Exception:
-                node = next((n for n in self._conn_ctrl.cached_flat if n.get("node_id") == node_id), None)
-                if node:
-                    self.property_panel.show_properties(node.get("payload", {}))
-                else:
-                    self.property_panel.show_properties({})
-        else:
-            self.property_panel.show_properties({})
+        if not node_id or node_id == "root" or not device or device.status != DeviceState.ONLINE:
+            return
+        # Try cached payload first
+        node = next((n for n in self._conn_ctrl.cached_flat if n.get("node_id") == node_id), None)
+        fallback = node.get("payload", {}) if node else {}
+        self.property_panel.show_properties(fallback)
+        threading.Thread(
+            target=self._fetch_attrs,
+            args=(device, node_id, fallback),
+            daemon=True,
+        ).start()
+
+    def _fetch_attrs(self, device, node_id: str, fallback: dict):
+        try:
+            attrs = device.poco.get_attributes(node_id)
+            self._attrs_ready.emit(attrs)
+        except Exception:
+            self._attrs_ready.emit(fallback)
 
     def _check_unsaved(self) -> bool:
         if self.editor.document().isModified():

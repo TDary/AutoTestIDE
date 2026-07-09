@@ -43,6 +43,7 @@ class PocoClient:
         self._protocol = protocol or PocoTextProtocol()
         self._sock: Optional[socket.socket] = None
         self._send_lock = threading.Lock()
+        self._close_lock = threading.Lock()
         self._pending: deque[tuple[Future, bool]] = deque()
         self._pending_cond = threading.Condition()
         self._recv_thread: Optional[threading.Thread] = None
@@ -93,35 +94,48 @@ class PocoClient:
         self.protocol_version = "v1"
 
     def close(self):
-        self._closed = True
+        """Close the TCP connection and stop the recv loop."""
+        with self._close_lock:
+            if self._closed:
+                return
+            self._closed = True
         with self._pending_cond:
             self._pending_cond.notify_all()
-        if self._sock is not None:
+        with self._close_lock:
+            sock = self._sock
+            self._sock = None
+        if sock is not None:
             # Send farewell command so the server can clean up (JX4: CloseConnection).
             # Best-effort — never block on errors.
             try:
-                self._protocol.before_close(self._sock)
+                self._protocol.before_close(sock)
                 # Half-close: tell server we're done writing.  This lets the
                 # server read the farewell and close its side, avoiding CLOSE_WAIT.
-                self._sock.shutdown(socket.SHUT_WR)
+                sock.shutdown(socket.SHUT_WR)
                 # Drain any remaining data from the server briefly.
-                self._sock.settimeout(1.0)
+                sock.settimeout(1.0)
                 try:
-                    while self._sock.recv(4096):
+                    while sock.recv(4096):
                         pass
                 except (socket.timeout, OSError):
                     pass
             except Exception:
                 logger.debug("close/shutdown failed", exc_info=True)
             try:
-                self._sock.close()
+                sock.close()
             except OSError:
                 pass
-            self._sock = None
         self._drain_pending(PocoConnectionError("client closed"))
         with self._cache_lock:
             self._hier_cache = None
             self._hier_cache_ts = 0.0
+        if self._recv_thread is not None:
+            if threading.current_thread() is not self._recv_thread:
+                self._recv_thread.join(timeout=2.0)
+            self._recv_thread = None
+
+    # Backwards-compatible alias used by Device.disconnect()
+    disconnect = close
 
     def _drain_pending(self, exc: Exception):
         with self._pending_cond:

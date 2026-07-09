@@ -103,6 +103,10 @@ class Device:
             logger.warning("Device %s: poco connect failed on %s:%d: %s",
                            self._name, host, self._forwarder.local_port, e, exc_info=True)
             try:
+                poco.close()
+            except Exception:
+                logger.debug("Device %s: poco close after connect failure", self._name, exc_info=True)
+            try:
                 self._forwarder.stop()
             except Exception:
                 logger.debug("Device %s: forwarder stop after connect failure", self._name, exc_info=True)
