@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
 )
 
 from autotest_ide.core.log import getLogger
-from autotest_ide.core.code_gen import OpMode, gen_click, gen_assert_exists, gen_long_click, gen_input, gen_swipe
+from autotest_ide.core.code_gen import OpMode
 from autotest_ide.core.device import DeviceState
 from autotest_ide.core.network import probe_tcp, diagnose_handshake_failure
 from autotest_ide.ui.device_panel import DevicePanel
@@ -25,7 +25,7 @@ from autotest_ide.ui.console import Console
 from autotest_ide.ui.clickable_panel import ClickablePanel
 from autotest_ide.ui.threads import ScreenshotWorker, PocoWorker, DeviceBridge, DeviceScanWorker
 from autotest_ide.ui.run_controller import RunController
-from autotest_ide.ui.record_controller import RecordController
+from autotest_ide.ui.code_gen_service import CodeGenService
 from autotest_ide.ui.report_view import ReportView
 from autotest_ide.core.device_manager import DeviceManager
 from autotest_ide.report import render_report
@@ -51,7 +51,7 @@ class MainWindow(QMainWindow):
         self._poco_worker = None
         self._device_bridge = None
         self._run_controller = RunController(self)
-        self._record_controller = RecordController(self)
+        self._code_gen_service = CodeGenService(self)
         self._report_view = None
         self._current_air = None
         self._current_script = None
@@ -361,7 +361,7 @@ class MainWindow(QMainWindow):
         self._run_controller.run_started.connect(self._on_run_started)
         self._run_controller.run_finished.connect(self._on_run_finished)
         self._run_controller.run_stopped.connect(self._on_run_stopped)
-        self._record_controller.code_generated.connect(self.editor.insert_locator_code)
+        self._code_gen_service.code_insert_requested.connect(self.editor.insert_locator_code)
 
     def _refresh_devices(self):
         self._refresh_btn.setEnabled(False)
@@ -591,33 +591,13 @@ class MainWindow(QMainWindow):
         x, y = getattr(self, "_last_inspect_xy", (0, 0))
         op_mode = self.device_panel.op_mode
         text = self._last_input_text
-        if self._record_controller.is_recording:
-            self._record_controller.on_inspect_result(node, x, y, op_mode, text=text)
-        else:
-            if op_mode == OpMode.CLICK:
-                code = gen_click(node, self._cached_flat, x, y)
-            elif op_mode == OpMode.LONG_PRESS:
-                code = gen_long_click(node, self._cached_flat, x, y)
-            elif op_mode == OpMode.INPUT:
-                code = gen_input(node, self._cached_flat, x, y, text)
-            else:
-                code = gen_click(node, self._cached_flat, x, y)
-            if code:
-                self.editor.insert_locator_code(code)
+        self._code_gen_service.on_inspect_result(node, self._cached_flat, x, y, op_mode, text)
 
     def _on_inspect_failed(self, error: str, x: int, y: int):
         self.console.append_warn(f"检查节点失败: {error}")
         op_mode = self.device_panel.op_mode
         text = self._last_input_text
-        if self._record_controller.is_recording:
-            self._record_controller.on_inspect_failed(x, y, op_mode, text=text)
-        else:
-            if op_mode == OpMode.LONG_PRESS:
-                self.editor.insert_locator_code(f"auto.long_click({x}, {y})\n")
-            elif op_mode == OpMode.INPUT:
-                self.editor.insert_locator_code(f"auto.click({x}, {y})  # set_text fallback\n")
-            else:
-                self.editor.insert_locator_code(f"auto.click({x}, {y})\n")
+        self._code_gen_service.on_inspect_failed(x, y, op_mode, text)
 
     def _on_long_press_requested(self, x: int, y: int):
         device = self._device_mgr.active
@@ -659,12 +639,7 @@ class MainWindow(QMainWindow):
     def _on_swipe_done(self, screenshot: bytes):
         self.device_panel.update_screenshot(screenshot)
         x1, y1, x2, y2 = self._last_swipe_xy
-        code = gen_swipe(x1, y1, x2, y2)
-        if self._record_controller.is_recording:
-            self._record_controller.on_swipe_done(x1, y1, x2, y2)
-        else:
-            if code:
-                self.editor.insert_locator_code(code)
+        self._code_gen_service.on_swipe_done(x1, y1, x2, y2)
 
     def _on_insert_code_from_tree(self, path: str):
         self.editor.insert_locator_code(f"auto.find_and_tap('{path}')\n")
@@ -876,7 +851,7 @@ class MainWindow(QMainWindow):
             else:
                 self.console.append_warn("请先连接设备")
                 return
-        self._record_controller.start(self._cached_flat)
+        self._code_gen_service.start_recording()
         self.record_btn.setEnabled(False)
         self.stop_record_btn.setEnabled(True)
         self.run_btn.setEnabled(False)
@@ -885,7 +860,7 @@ class MainWindow(QMainWindow):
         self.console.append_text("录制开始 — 点击设备截图将自动生成代码")
 
     def _on_stop_record_clicked(self):
-        self._record_controller.stop()
+        self._code_gen_service.stop_recording()
         self.record_btn.setEnabled(True)
         self.stop_record_btn.setEnabled(False)
         self.run_btn.setEnabled(True)
