@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import (
 
 from autotest_ide.core.log import getLogger
 from autotest_ide.core.code_gen import OpMode, gen_click, gen_assert_exists, gen_long_click, gen_input, gen_swipe
+from autotest_ide.core.device import DeviceState
 from autotest_ide.ui.device_panel import DevicePanel
 from autotest_ide.ui.editor import Editor
 from autotest_ide.ui.icons import make_icon
@@ -412,11 +413,11 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "连接失败", f"无法连接设备\n{e}")
             return
 
-        if device.status != "online":
+        if device.status != DeviceState.ONLINE:
             err = device.last_error or "未知错误"
             QMessageBox.warning(
                 self, "连接失败",
-                f"设备状态: {device.status}\n\n错误: {err}",
+                f"设备状态: {device.status.value}\n\n错误: {err}",
             )
             self._disconnect_device()
             return
@@ -505,7 +506,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "连接失败", f"无法连接 {host}:{port}\n{e}")
             return
 
-        if device.status != "online":
+        if device.status != DeviceState.ONLINE:
             err = device.last_error or "未知错误"
             hint = self._diagnose_handshake_failure(err, sdk_name)
             QMessageBox.warning(
@@ -605,7 +606,7 @@ class MainWindow(QMainWindow):
     def _on_device_status_changed(self, status):
         self.status_device.setText(f"  设备: {status}  ")
         device = self._device_mgr.active
-        if device and status == "online":
+        if device and status == DeviceState.ONLINE.value:
             if not self._screenshot_worker:
                 self._start_screenshot_worker(device)
             if device.poco:
@@ -615,7 +616,7 @@ class MainWindow(QMainWindow):
             self._conn_status.setStyleSheet(
                 "color: #a6e3a1; font-size: 13px; font-weight: bold; padding: 2px 8px;"
             )
-        elif status in ("offline", "disconnected"):
+        elif status in (DeviceState.OFFLINE.value, DeviceState.DISCONNECTED.value):
             self._stop_screenshot_worker()
             if self._poco_worker:
                 self._poco_worker.quit()
@@ -628,7 +629,7 @@ class MainWindow(QMainWindow):
 
     def _on_inspect_requested(self, x: int, y: int):
         device = self._device_mgr.active
-        if not device or device.status != "online":
+        if not device or device.status != DeviceState.ONLINE:
             return
         self.status_coords.setText(f"  坐标: ({x}, {y})  ")
         self._last_inspect_xy = (x, y)
@@ -679,7 +680,7 @@ class MainWindow(QMainWindow):
 
     def _on_long_press_requested(self, x: int, y: int):
         device = self._device_mgr.active
-        if not device or device.status != "online":
+        if not device or device.status != DeviceState.ONLINE:
             return
         self.status_coords.setText(f"  坐标: ({x}, {y})  ")
         self._last_inspect_xy = (x, y)
@@ -690,7 +691,7 @@ class MainWindow(QMainWindow):
 
     def _on_swipe_requested(self, x1: int, y1: int, x2: int, y2: int):
         device = self._device_mgr.active
-        if not device or device.status != "online":
+        if not device or device.status != DeviceState.ONLINE:
             return
         self.status_coords.setText(f"  坐标: ({x1},{y1})→({x2},{y2})  ")
         self._last_swipe_xy = (x1, y1, x2, y2)
@@ -701,7 +702,7 @@ class MainWindow(QMainWindow):
 
     def _on_input_text_requested(self, x: int, y: int):
         device = self._device_mgr.active
-        if not device or device.status != "online":
+        if not device or device.status != DeviceState.ONLINE:
             return
         text, ok = QInputDialog.getText(self, "输入文本", "请输入要设置的文本:")
         if not ok or not text:
@@ -729,7 +730,7 @@ class MainWindow(QMainWindow):
 
     def _on_refresh_tree(self):
         device = self._device_mgr.active
-        if not device or device.status != "online":
+        if not device or device.status != DeviceState.ONLINE:
             return
         try:
             self._cached_root = device.poco.get_root()
@@ -748,7 +749,7 @@ class MainWindow(QMainWindow):
             node_id = node_data.get("node_id", "")
             if node_id and node_id != "root":
                 device = self._device_mgr.active
-                if device and device.status == "online":
+                if device and device.status == DeviceState.ONLINE:
                     try:
                         attrs = device.poco.get_attributes(node_id)
                         self.property_panel.show_properties(attrs)
@@ -763,7 +764,7 @@ class MainWindow(QMainWindow):
         if node_id:
             self.tree_panel.highlight_node(node_id)
         device = self._device_mgr.active
-        if node_id and node_id != "root" and device and device.status == "online":
+        if node_id and node_id != "root" and device and device.status == DeviceState.ONLINE:
             try:
                 attrs = device.poco.get_attributes(node_id)
                 self.property_panel.show_properties(attrs)
@@ -864,7 +865,7 @@ class MainWindow(QMainWindow):
     def _on_run_clicked(self):
         device = self._device_mgr.active
         logger.info("_on_run_clicked: device=%s status=%s", device, getattr(device, 'status', None))
-        if not device or device.status != "online":
+        if not device or device.status != DeviceState.ONLINE:
             self.console.append_text("错误: 没有在线设备", is_error=True)
             return
         script_path = getattr(self, "_current_script", None)
@@ -924,7 +925,7 @@ class MainWindow(QMainWindow):
     def _on_record_clicked(self):
         if not self._cached_flat:
             device = self._device_mgr.active
-            if device and device.status == "online":
+            if device and device.status == DeviceState.ONLINE:
                 try:
                     self._cached_root = device.poco.get_root()
                     self._cached_flat = device.poco._flatten_tree(self._cached_root)

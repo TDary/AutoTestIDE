@@ -1,0 +1,62 @@
+<h2>操作模式切换 UI 方案</h2>
+<p class="subtitle">在截图面板上方增加操作模式选择器，影响鼠标交互行为</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>工具栏按钮组 (推荐)</h3>
+      <p>截图面板顶部增加一排图标按钮：🖱️点击 | ✋长按 | ↔️滑动 | ⌨️输入，当前模式高亮，类似 AirtestIDE</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>下拉菜单</h3>
+      <p>一个下拉框选择操作模式，省空间但切换需两步操作</p>
+    </div>
+  </div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>右键菜单切换</h3>
+      <p>默认单击模式，右键弹出菜单切换到长按/滑动/输入，更隐晦</p>
+    </div>
+  </div>
+</div>
+
+<div class="mockup" style="margin-top: 2rem;">
+  <div class="mockup-header">Preview: 方案A — 工具栏按钮组</div>
+  <div class="mockup-body">
+    <div style="background: #1e1e2e; border-radius: 8px; padding: 8px; margin-bottom: 8px; display: flex; gap: 4px; align-items: center;">
+      <div style="background: #f38ba8; color: #1e1e2e; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold;">🖱️ 点击</div>
+      <div style="background: #313244; color: #cdd6f4; padding: 4px 10px; border-radius: 4px; font-size: 12px;">✋ 长按</div>
+      <div style="background: #313244; color: #cdd6f4; padding: 4px 10px; border-radius: 4px; font-size: 12px;">↔️ 滑动</div>
+      <div style="background: #313244; color: #cdd6f4; padding: 4px 10px; border-radius: 4px; font-size: 12px;">⌨️ 输入</div>
+      <div style="flex:1"></div>
+      <div style="background: #45475a; color: #a6adc8; padding: 4px 10px; border-radius: 4px; font-size: 11px;">🔴 录制中</div>
+    </div>
+    <div style="background: #11111b; border: 1px solid #313244; border-radius: 4px; height: 200px; display: flex; align-items: center; justify-content: center; color: #585b70;">
+      <span style="font-size: 13px;">📱 设备截图区域</span>
+    </div>
+  </div>
+</div>
+
+<div class="mockup" style="margin-top: 1rem;">
+  <div class="mockup-header">Preview: 方案A — 滑动模式交互</div>
+  <div class="mockup-body">
+    <div style="background: #1e1e2e; border-radius: 8px; padding: 8px; margin-bottom: 8px; display: flex; gap: 4px; align-items: center;">
+      <div style="background: #313244; color: #cdd6f4; padding: 4px 10px; border-radius: 4px; font-size: 12px;">🖱️ 点击</div>
+      <div style="background: #313244; color: #cdd6f4; padding: 4px 10px; border-radius: 4px; font-size: 12px;">✋ 长按</div>
+      <div style="background: #f38ba8; color: #1e1e2e; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold;">↔️ 滑动</div>
+      <div style="background: #313244; color: #cdd6f4; padding: 4px 10px; border-radius: 4px; font-size: 12px;">⌨️ 输入</div>
+    </div>
+    <div style="background: #11111b; border: 1px solid #313244; border-radius: 4px; height: 200px; position: relative; display: flex; align-items: center; justify-content: center;">
+      <div style="position: absolute; left: 40px; top: 50px; width: 60px; height: 30px; background: #45475a; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: #cdd6f4; font-size: 11px;">Btn</div>
+      <div style="position: absolute; left: 42px; top: 65px; width: 56px; height: 2px; background: #f38ba8;"></div>
+      <div style="position: absolute; left: 90px; top: 85px; width: 2px; height: 2px; background: #f38ba8; border-radius: 50%;"></div>
+      <div style="position: absolute; left: 120px; top: 120px; width: 80px; height: 30px; background: #585b70; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: #a6adc8; font-size: 11px;">Target</div>
+      <div style="position: absolute; right: 10px; bottom: 10px; color: #585b70; font-size: 11px;">拖拽起点 → 终点</div>
+    </div>
+  </div>
+</div>

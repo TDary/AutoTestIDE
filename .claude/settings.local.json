@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(powershell *)"
+      "Bash(powershell *)",
+      "Bash(python -m pytest tests/test_code_gen.py -v)",
+      "Bash(python -m pytest tests/test_jx4_protocol.py -v)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(python -m pytest tests/test_protocol_adapter.py -v)",
+      "Bash(python -m pip show pytest-qt)"
     ]
   }
 }

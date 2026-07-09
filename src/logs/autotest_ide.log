@@ -2,3 +2,15 @@
 2026-07-01 10:02:24,305 INFO autotest_ide.core.forwarder: Resolved adb to: F:\platform-tools\adb.EXE
 2026-07-01 10:13:44,569 INFO autotest_ide.app: AutoTest IDE starting
 2026-07-01 10:13:44,612 INFO autotest_ide.core.forwarder: Resolved adb to: F:\platform-tools\adb.EXE
+2026-07-01 14:31:58,200 INFO autotest_ide.app: AutoTest IDE starting
+2026-07-01 14:31:58,259 INFO autotest_ide.core.forwarder: Resolved adb to: F:\platform-tools\adb.EXE
+2026-07-01 15:11:33,389 INFO autotest_ide.app: AutoTest IDE starting
+2026-07-01 15:24:57,153 INFO autotest_ide.app: AutoTest IDE starting
+2026-07-01 15:55:17,524 INFO autotest_ide.app: AutoTest IDE starting
+2026-07-01 16:11:22,396 INFO autotest_ide.app: AutoTest IDE starting
+2026-07-01 16:30:34,787 INFO autotest_ide.app: AutoTest IDE starting
+2026-07-03 09:50:05,376 INFO autotest_ide.app: AutoTest IDE starting
+2026-07-03 12:45:59,731 INFO __main__: AutoTest IDE starting
+2026-07-03 12:47:30,777 INFO autotest_ide.ui.main_window: Disconnecting device
+2026-07-03 12:47:30,777 INFO autotest_ide.core.device_manager: Disconnecting active device
+2026-07-03 12:47:30,778 INFO autotest_ide.core.device_manager: DeviceManager shutdown

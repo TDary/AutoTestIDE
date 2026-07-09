@@ -3,7 +3,7 @@ import threading
 from PyQt5.QtCore import QThread, QObject, pyqtSignal
 from PyQt5.QtGui import QPixmap
 
-from autotest_ide.core.device import Device
+from autotest_ide.core.device import Device, DeviceState
 from autotest_ide.core.log import getLogger
 
 logger = getLogger(__name__)
@@ -20,7 +20,7 @@ class ScreenshotWorker(QThread):
 
     def run(self):
         while not self._stop_event.wait(timeout=self._interval):
-            if self._device.status != "online":
+            if self._device.status != DeviceState.ONLINE:
                 self._stop_event.wait(timeout=1.0)
                 continue
             try:
@@ -140,5 +140,5 @@ class DeviceBridge(QObject):
         self._device = device
         device.on_status_change(self._on_status)
 
-    def _on_status(self, status: str):
-        self.status_changed.emit(status)
+    def _on_status(self, status):
+        self.status_changed.emit(status.value)
