@@ -3,6 +3,7 @@ import sys
 
 import pytest
 
+from autotest_ide.core.device import DeviceState
 from autotest_ide.core.device_manager import DeviceManager
 from autotest_ide.core.errors import DeviceDiscoveryError
 
@@ -62,7 +63,7 @@ def test_connect_local_sets_active_and_returns_device(fake_server):
     device = mgr.connect_local(port=fake_server.port)
     try:
         assert mgr.active is device
-        assert device.status == "online"
+        assert device.status == DeviceState.ONLINE
         assert device.name == f"localhost:{fake_server.port}"
     finally:
         mgr.disconnect_active()
@@ -72,7 +73,7 @@ def test_connect_local_sets_active_and_returns_device(fake_server):
 def test_connect_local_default_name():
     mgr = DeviceManager()
     device = mgr.connect_local(port=1)
-    assert device.status == "offline"
+    assert device.status == DeviceState.OFFLINE
     assert mgr.active is device
     mgr.shutdown()
 
@@ -80,7 +81,7 @@ def test_connect_local_default_name():
 def test_connect_android_uses_fake_adb(fake_server):
     mgr = DeviceManager(adb_path=FAKE_ADB)
     device = mgr.connect_android(serial="emulator-5554", remote_port=5001)
-    assert device.status == "offline"
+    assert device.status == DeviceState.OFFLINE
     assert device.name == "emulator-5554"
     mgr.shutdown()
 
@@ -98,7 +99,7 @@ def test_shutdown_disconnects_all_devices(fake_server):
     d1 = mgr.connect_local(port=fake_server.port)
     mgr.disconnect_active()
     mgr.shutdown()
-    assert d1.status == "disconnected"
+    assert d1.status == DeviceState.DISCONNECTED
 
 
 def test_atexit_registered_on_first_connect(fake_server, monkeypatch):

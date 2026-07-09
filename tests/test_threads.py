@@ -4,6 +4,8 @@ import time
 
 from PyQt5.QtWidgets import QApplication
 
+from autotest_ide.core.device import DeviceState
+
 
 @pytest.fixture(scope="session")
 def qapp():
@@ -68,7 +70,7 @@ from autotest_ide.ui.threads import PocoWorker
 
 def _make_device():
     device = MagicMock()
-    device.status = "online"
+    device.status = DeviceState.ONLINE
     device.poco.screenshot.return_value = b"\x89PNG"
     device.poco.inspect_by_point.return_value = {"name": "Btn", "node_id": "1", "payload": {}}
     return device

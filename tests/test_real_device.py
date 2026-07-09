@@ -7,6 +7,7 @@ import time
 
 import pytest
 
+from autotest_ide.core.device import DeviceState
 from autotest_ide.core.device_manager import DeviceManager
 
 pytestmark = pytest.mark.real_device
@@ -17,10 +18,10 @@ def test_connect_real_android_device(real_android_serial):
     device = mgr.connect_android(serial=real_android_serial, remote_port=5001)
     try:
         for _ in range(20):
-            if device.status == "online":
+            if device.status == DeviceState.ONLINE:
                 break
             time.sleep(0.2)
-        assert device.status == "online", f"device not online: {device.status}"
+        assert device.status == DeviceState.ONLINE, f"device not online: {device.status}"
         poco = device.poco
         size = poco.get_screen_size()
         assert "w" in size and "h" in size
