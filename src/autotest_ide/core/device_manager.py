@@ -89,14 +89,12 @@ class DeviceManager:
 
     def connect_android(self, serial: str, remote_port: int = 13000,
                         name: Optional[str] = None,
-                        protocol: Optional[PocoProtocol] = None,
-                        remote_ports: Optional[list[int]] = None) -> Device:
+                        protocol: Optional[PocoProtocol] = None) -> Device:
         logger.info("Connecting android device serial=%s remote_port=%d", serial, remote_port)
-        # JX4 SDK: scan ports 13000-13004
-        if remote_ports is None and protocol is not None:
-            from autotest_ide.sdks.jx4.protocol import JX4Protocol
-            if isinstance(protocol, JX4Protocol):
-                remote_ports = list(range(13000, 13005))
+        # Use protocol's declared remote ports (e.g. JX4 scans 13000-13004)
+        remote_ports = None
+        if protocol is not None:
+            remote_ports = protocol.get_default_remote_ports()
         fwd = AdbForwarder(device_serial=serial, remote_port=remote_port,
                            remote_ports=remote_ports,
                            adb_path=self._adb_path)

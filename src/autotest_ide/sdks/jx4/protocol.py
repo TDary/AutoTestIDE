@@ -135,6 +135,10 @@ class JX4Protocol(PocoProtocol):
 
     # ── PocoProtocol interface ──────────────────────────────────
 
+    def get_default_remote_ports(self) -> list[int] | None:
+        """JX4: scan ports 13000-13004 for ADB forwarding."""
+        return list(range(13000, 13005))
+
     def create_connection(
         self,
         host: str,

@@ -71,6 +71,15 @@ class PocoProtocol(ABC):
         Returns the server version string, or ``None`` if unavailable.
         """
 
+    def get_default_remote_ports(self) -> list[int] | None:
+        """Return default remote ports for ADB forwarding, or None if single port.
+
+        Protocols that need port-scanning (e.g. JX4) override this to return
+        a list like [13000, 13001, 13002, 13003, 13004].  Default: None
+        (single-port, no scanning).
+        """
+        return None
+
     def create_connection(
         self,
         host: str,
