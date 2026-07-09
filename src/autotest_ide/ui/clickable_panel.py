@@ -14,6 +14,8 @@ from PyQt5.QtWidgets import (
     QApplication,
 )
 
+from autotest_ide.core.code_gen import _build_path
+
 _CLR_ENABLED = QColor("#a6e3a1")
 _CLR_DISABLED = QColor("#f9e2af")
 
@@ -181,33 +183,12 @@ def _attrs_has_button(attrs: dict) -> bool:
 
 
 def _build_paths(flat_nodes: list) -> dict[str, str]:
-    by_id: dict[str, dict] = {}
-    parent_of: dict[str, str] = {}
+    """Build node_id -> path mapping for all nodes."""
+    paths: dict[str, str] = {}
     for node in flat_nodes:
-        nid = node.get("node_id", "")
-        if nid:
-            by_id[nid] = node
-    for node in flat_nodes:
-        for child in node.get("children", []):
-            cid = child.get("node_id", "")
-            if cid and cid in by_id:
-                parent_of[cid] = node.get("node_id", "")
-
-    result: dict[str, str] = {}
-    for nid in by_id:
-        parts: list[str] = []
-        cur = nid
-        visited: set[str] = set()
-        while cur and cur not in visited:
-            visited.add(cur)
-            n = by_id.get(cur)
-            if n is None:
-                break
-            name = n.get("name", "")
-            if name and name != "root":
-                parts.append(name)
-            cur = parent_of.get(cur, "")
-        parts.reverse()
-        if parts:
-            result[nid] = "/".join(parts)
-    return result
+        path = _build_path(node, flat_nodes)
+        if path:
+            nid = node.get("node_id", "")
+            if nid:
+                paths[nid] = path
+    return paths

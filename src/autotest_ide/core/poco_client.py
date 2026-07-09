@@ -12,6 +12,7 @@ from autotest_ide.core.errors import (
     PocoRemoteError,
     PocoTimeoutError,
 )
+from autotest_ide.core.locator import _flatten_nodes
 from autotest_ide.core.log import getLogger
 from autotest_ide.core.protocol_base import PocoProtocol
 from autotest_ide.core.protocol_poco import PocoTextProtocol
@@ -310,10 +311,4 @@ class PocoClient:
         return self._request_json("get_node_by_path", path)
 
     def _flatten_tree(self, root: dict) -> list:
-        nodes = []
-        stack = [root]
-        while stack:
-            node = stack.pop()
-            nodes.append(node)
-            stack.extend(reversed(node.get("children", [])))
-        return nodes
+        return _flatten_nodes([root])

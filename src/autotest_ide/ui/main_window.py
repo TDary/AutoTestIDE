@@ -422,6 +422,10 @@ class MainWindow(QMainWindow):
             self._disconnect_device()
             return
 
+        self._on_device_connected(device)
+
+    def _on_device_connected(self, device):
+        """Shared post-connection setup: workers, UI tree, status indicators."""
         self._device_bridge = DeviceBridge(device)
         self._device_bridge.status_changed.connect(self._on_device_status_changed)
 
@@ -518,27 +522,7 @@ class MainWindow(QMainWindow):
             self._disconnect_device()
             return
 
-        self._device_bridge = DeviceBridge(device)
-        self._device_bridge.status_changed.connect(self._on_device_status_changed)
-
-        self._poco_worker = PocoWorker(device, self)
-        self._poco_worker.inspect_result.connect(self._on_inspect_result)
-        self._poco_worker.inspect_failed.connect(self._on_inspect_failed)
-        self._poco_worker.swipe_done.connect(self._on_swipe_done)
-
-        self._start_screenshot_worker(device)
-        self._cached_root = device.poco.get_root()
-        self._cached_flat = device.poco._flatten_tree(self._cached_root)
-        self.tree_panel.load_tree(self._cached_root)
-        self.clickable_panel.set_device(device)
-        self.clickable_panel.load_clickable_nodes(self._cached_flat)
-        self.status_device.setText(f"  设备: {device.name}  ")
-        sdk = self.sdk_combo.currentData() or "jx4"
-        self.status_protocol.setText(f"  协议: {device.poco.protocol_version or '-'} ({sdk})  ")
-        self._conn_status.setText(" ● 已连接 ")
-        self._conn_status.setStyleSheet(
-            "color: #a6e3a1; font-size: 13px; font-weight: bold; padding: 2px 8px;"
-        )
+        self._on_device_connected(device)
 
     @staticmethod
     def _probe_tcp(host: str, port: int, timeout: float = 2.0) -> str:
