@@ -118,22 +118,29 @@ def _make_device_mgr():
 # ── Helpers for synchronous connect in tests ──────────────────────
 # The public connect_android/connect_local/connect_ip methods spawn a
 # background thread and return immediately.  In tests we call the
-# synchronous _do_connect_* methods directly so signals are emitted
-# on the calling thread and qtbot.waitSignal can observe them.
+# synchronous _do_handshake_* methods directly (they call device_mgr
+# and emit handshake_done).  For tests that just need a "connected"
+# state (workers, signal forwarding), calling _on_device_connected
+# directly is simpler and avoids needing a Qt event loop.
 
 _DUMMY_PROTOCOL = None
 
 
 def _sync_connect_android(cc, serial="test", remote_port=13000):
-    cc._do_connect_android(serial, remote_port, _DUMMY_PROTOCOL)
+    cc._do_handshake_android(serial, remote_port, _DUMMY_PROTOCOL)
 
 
 def _sync_connect_local(cc, port=13000):
-    cc._do_connect_local(port, _DUMMY_PROTOCOL)
+    cc._do_handshake_local(port, _DUMMY_PROTOCOL)
 
 
 def _sync_connect_ip(cc, host="127.0.0.1", port=13000):
-    cc._do_connect_ip(host, port, _DUMMY_PROTOCOL)
+    cc._do_handshake_ip(host, port, _DUMMY_PROTOCOL)
+
+
+def _direct_connect(cc, device):
+    """Call _on_device_connected directly — simplest way to get a connected state in tests."""
+    cc._on_device_connected(device)
 
 
 # ── Initial state ───────────────────────────────────────────────
@@ -186,7 +193,7 @@ def test_connect_android_emits_connection_failed_on_exception(qtbot, mock_worker
 def test_connect_android_emits_connection_failed_when_device_not_online(qtbot, mock_workers):
     mgr = _make_device_mgr()
     device = _make_device(status=DeviceState.OFFLINE)
-    device.last_error = "port forward failed"
+    device._last_error = "port forward failed"
     mgr.connect_android.return_value = device
     cc = ConnectionController(mgr)
 
