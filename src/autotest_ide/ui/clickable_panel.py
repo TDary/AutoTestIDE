@@ -1,4 +1,10 @@
-"""可点击按钮面板 —— 展示 UI 树中所有 Button/Toggle 节点"""
+"""可点击按钮面板 —— 展示 UI 树中所有 Button/Toggle 节点
+
+先按名字关键词快速展示候选行（无 TCP 请求），然后后台逐个验证
+component 状态并更新行颜色。
+"""
+
+import threading
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor
@@ -26,6 +32,8 @@ _CLICKABLE_NAME_KEYWORDS = ("Btn", "Anniu", "Button", "Toggle", "btn")
 class ClickablePanel(QWidget):
     node_selected = pyqtSignal(str)
     insert_code_requested = pyqtSignal(str)
+
+    _row_color_update = pyqtSignal(int, bool)  # row_index, is_enabled
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -56,6 +64,8 @@ class ClickablePanel(QWidget):
         self._table.cellDoubleClicked.connect(self._on_row_double_clicked)
         self._table.customContextMenuRequested.connect(self._on_context_menu)
 
+        self._row_color_update.connect(self._update_row_color)
+
     # ── public ────────────────────────────────────────────────────────
 
     def set_device(self, device) -> None:
@@ -66,7 +76,7 @@ class ClickablePanel(QWidget):
         self._row_data.clear()
         paths = _build_paths(flat_nodes)
 
-        # Step 1: pre-filter candidates by name keywords (JX4 dump has no components)
+        # Step 1: pre-filter candidates by name keywords and components in payload (no TCP)
         candidates = []
         for node in flat_nodes:
             payload = node.get("payload", {})
@@ -82,28 +92,41 @@ class ClickablePanel(QWidget):
             if any(kw in name for kw in _CLICKABLE_NAME_KEYWORDS):
                 candidates.append(node)
 
-        # Step 2: for JX4 candidates, call get_attributes to confirm via components
+        # Step 2: immediately add all candidates to the table (no TCP)
         for node in candidates:
             payload = node.get("payload", {})
             node_id = node.get("node_id", "")
             name = node.get("name", "")
             path = paths.get(node_id, name)
+            self._add_row(node, path, payload)
 
-            # If payload already has components (standard Poco), use it directly
-            components = payload.get("components", [])
-            if components:
-                self._add_row(node, path, payload)
-                continue
-
-            # JX4: try get_attributes for full component list
-            attrs = self._get_attrs(node_id)
-            if attrs and _attrs_has_button(attrs):
-                self._add_row(node, path, attrs)
-            elif any(kw in name for kw in _CLICKABLE_NAME_KEYWORDS):
-                # get_attributes failed but name matches — show anyway
-                self._add_row(node, path, payload)
-
+        # Step 3: resize columns so the user sees content immediately
         self._table.resizeColumnsToContents()
+
+        # Step 4: spawn background thread for get_attributes verification
+        threading.Thread(
+            target=self._verify_clickable_in_background,
+            args=(candidates,),
+            daemon=True,
+        ).start()
+
+    def _verify_clickable_in_background(self, candidates: list):
+        for i, node in enumerate(candidates):
+            if i >= self._table.rowCount():
+                break
+            attrs = self._get_attrs(node.get("node_id", ""))
+            if attrs:
+                is_enabled = _attrs_has_button(attrs)
+                self._row_color_update.emit(i, is_enabled)
+
+    def _update_row_color(self, row: int, is_enabled: bool):
+        if row >= self._table.rowCount():
+            return
+        color = _CLR_ENABLED if is_enabled else _CLR_DISABLED
+        for col in range(self._table.columnCount()):
+            item = self._table.item(row, col)
+            if item:
+                item.setForeground(color)
 
     def clear(self) -> None:
         self._table.setRowCount(0)
