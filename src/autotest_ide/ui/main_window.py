@@ -14,6 +14,7 @@ from PyQt5.QtWidgets import (
 from autotest_ide.core.log import getLogger
 from autotest_ide.core.code_gen import OpMode, gen_click, gen_assert_exists, gen_long_click, gen_input, gen_swipe
 from autotest_ide.core.device import DeviceState
+from autotest_ide.core.network import probe_tcp, diagnose_handshake_failure
 from autotest_ide.ui.device_panel import DevicePanel
 from autotest_ide.ui.editor import Editor
 from autotest_ide.ui.icons import make_icon
@@ -487,7 +488,7 @@ class MainWindow(QMainWindow):
 
         # Quick TCP probe so we can give the user an immediate, specific error
         # before going through the full Poco handshake.
-        tcp_err = self._probe_tcp(host, port)
+        tcp_err = probe_tcp(host, port)
         if tcp_err:
             QMessageBox.warning(
                 self, "网络不通",
@@ -512,7 +513,7 @@ class MainWindow(QMainWindow):
 
         if device.status != DeviceState.ONLINE:
             err = device.last_error or "未知错误"
-            hint = self._diagnose_handshake_failure(err, sdk_name)
+            hint = diagnose_handshake_failure(err, sdk_name)
             QMessageBox.warning(
                 self, "Poco 握手失败",
                 f"TCP 已连通 {host}:{port}，但 Poco 协议握手失败。\n\n"
@@ -523,37 +524,6 @@ class MainWindow(QMainWindow):
             return
 
         self._on_device_connected(device)
-
-    @staticmethod
-    def _probe_tcp(host: str, port: int, timeout: float = 2.0) -> str:
-        """Quick TCP connect test. Returns empty string on success, error msg on failure."""
-        import socket as _socket
-        try:
-            s = _socket.create_connection((host, port), timeout=timeout)
-            s.close()
-            return ""
-        except _socket.timeout:
-            return f"连接超时 ({timeout}s) — 目标无响应"
-        except ConnectionRefusedError:
-            return "连接被拒绝 — 目标端口未监听"
-        except OSError as e:
-            return f"网络错误: {e}"
-
-    @staticmethod
-    def _diagnose_handshake_failure(err: str, sdk_name: str) -> str:
-        """Suggest likely causes based on the handshake error message."""
-        err_lower = err.lower()
-        if "handshake failed" in err_lower or "did not respond" in err_lower:
-            return (
-                "提示: TCP 通但握手超时，常见原因:\n"
-                f"  - 当前 SDK 选的是「{sdk_name}」，但设备运行的可能是另一种\n"
-                "    尝试切换 SDK (Poco ↔ JX4) 后重连\n"
-                "  - 设备上 Poco service 端口不是 13000\n"
-                "  - service 已启动但未完成初始化"
-            )
-        if "connect failed" in err_lower:
-            return "提示: TCP 层连接失败，请检查网络/防火墙"
-        return ""
 
     @staticmethod
     def _load_protocol(sdk_name: str):
