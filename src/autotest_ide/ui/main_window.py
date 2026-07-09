@@ -612,21 +612,11 @@ class MainWindow(QMainWindow):
         self.editor.insert_locator_code(f"auto.find_and_tap('{path}')\n")
 
     def _on_refresh_tree(self):
+        """Trigger async tree refresh (actual UI update happens in _on_tree_loaded)."""
         device = self._conn_ctrl.active_device
         if not device or device.status != DeviceState.ONLINE:
             return
-        try:
-            self._conn_ctrl.load_tree()
-            root = self._conn_ctrl.cached_root
-            if root:
-                self.tree_panel.load_tree(root)
-            flat = self._conn_ctrl.cached_flat
-            self.clickable_panel.set_device(device)
-            self.clickable_panel.load_clickable_nodes(flat)
-            logger.info("UI tree refreshed")
-        except Exception as e:
-            logger.warning("Failed to refresh tree: %s", e)
-            self.console.append_text(f"刷新 UI 树失败: {e}", is_error=True)
+        self._conn_ctrl.load_tree()  # non-blocking, emits tree_loaded when done
 
     def _on_tree_selection_changed(self):
         node_data = self.tree_panel.get_selected_node_data()

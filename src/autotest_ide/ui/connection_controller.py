@@ -4,7 +4,7 @@ Owns PocoWorker, ScreenshotWorker, and DeviceBridge instances.  Emits signals
 that MainWindow receives so the UI can update without knowing about worker
 creation details.
 
-Connect operations (TCP handshake) run in a background thread to avoid
+Connect and disconnect operations both run in background threads to avoid
 blocking the UI.  After the handshake succeeds, a signal tells the main
 thread to set up workers and load data.
 """
@@ -48,7 +48,7 @@ class ConnectionController(QObject):
         # When handshake completes in background thread, do setup on main thread
         self.handshake_done.connect(self._on_device_connected)
 
-    # -- Public API (non-blocking, spawns background thread) ------------------
+    # -- Public API (all non-blocking) ----------------------------------------
 
     def connect_android(self, serial: str, sdk_name: str, remote_port: int = 13000):
         """Connect an Android device asynchronously (non-blocking)."""
@@ -77,7 +77,74 @@ class ConnectionController(QObject):
             daemon=True,
         ).start()
 
-    # -- Background thread methods (TCP handshake only) ----------------------
+    def disconnect(self):
+        """Disconnect device -- non-blocking, cleanup runs in background thread."""
+        # Snapshot references on main thread (safe, no blocking)
+        sw = self._screenshot_worker
+        pw = self._poco_worker
+        self._screenshot_worker = None
+        self._poco_worker = None
+        self._device_bridge = None
+        self._cached_flat = []
+        self._cached_root = None
+        # Notify UI immediately
+        self.device_disconnected.emit()
+        # Cleanup in background thread (join/wait calls are safe there)
+        threading.Thread(
+            target=self._do_disconnect_cleanup,
+            args=(sw, pw),
+            daemon=True,
+        ).start()
+
+    def load_tree(self):
+        """Refresh tree data from active device -- non-blocking."""
+        device = self._device_mgr.active
+        if device and device.poco:
+            threading.Thread(
+                target=self._do_load_tree,
+                args=(device,),
+                daemon=True,
+            ).start()
+
+    def stop_workers_for_offline(self):
+        """Stop screenshot and poco workers when device goes offline -- non-blocking."""
+        sw = self._screenshot_worker
+        pw = self._poco_worker
+        self._screenshot_worker = None
+        self._poco_worker = None
+        threading.Thread(
+            target=self._do_stop_workers,
+            args=(sw, pw),
+            daemon=True,
+        ).start()
+
+    def restart_screenshot(self, device: Device):
+        """Restart screenshot worker when device comes back online."""
+        self._start_screenshot_worker(device)
+
+    # -- Properties -----------------------------------------------------------
+
+    @property
+    def cached_flat(self) -> list:
+        return self._cached_flat
+
+    @property
+    def cached_root(self) -> dict:
+        return self._cached_root or {}
+
+    @property
+    def active_device(self):
+        return self._device_mgr.active
+
+    @property
+    def poco_worker(self) -> PocoWorker | None:
+        return self._poco_worker
+
+    @property
+    def has_screenshot_worker(self) -> bool:
+        return self._screenshot_worker is not None
+
+    # -- Background thread methods -------------------------------------------
 
     def _do_handshake_android(self, serial: str, remote_port: int, protocol):
         try:
@@ -114,6 +181,46 @@ class ConnectionController(QObject):
             logger.warning("IP connect failed: %s", e)
             self.connection_failed.emit(str(e))
 
+    def _do_disconnect_cleanup(self, sw, pw):
+        """Background: stop workers and disconnect device (blocking joins are safe here)."""
+        if sw:
+            try:
+                sw.stop()
+            except Exception:
+                logger.debug("Screenshot worker stop failed", exc_info=True)
+        if pw:
+            try:
+                pw.quit()
+                pw.wait(2000)
+            except Exception:
+                logger.debug("Poco worker stop failed", exc_info=True)
+        self._device_mgr.disconnect_active()
+
+    def _do_stop_workers(self, sw, pw):
+        """Background: stop workers without disconnecting device."""
+        if sw:
+            try:
+                sw.stop()
+            except Exception:
+                logger.debug("Screenshot worker stop failed", exc_info=True)
+        if pw:
+            try:
+                pw.quit()
+                pw.wait(2000)
+            except Exception:
+                logger.debug("Poco worker stop failed", exc_info=True)
+
+    def _do_load_tree(self, device: Device):
+        """Background thread: load tree data (blocking TCP call)."""
+        if device.poco:
+            try:
+                root = device.poco.get_root()
+                self._cached_root = root
+                self._cached_flat = device.poco._flatten_tree(root)
+                self.tree_loaded.emit(self._cached_flat)
+            except Exception as e:
+                logger.warning("Tree load failed: %s", e)
+
     # -- Main-thread setup (after handshake succeeds) ------------------------
 
     def _on_device_connected(self, device: Device):
@@ -141,88 +248,26 @@ class ConnectionController(QObject):
             daemon=True,
         ).start()
 
-    # -- Disconnect -----------------------------------------------------------
-
-    def disconnect(self):
-        """Disconnect device and stop all workers."""
-        self._stop_screenshot_worker()
-        if self._poco_worker:
-            self._poco_worker.quit()
-            self._poco_worker.wait(2000)
-            self._poco_worker = None
-        if self._device_bridge:
-            self._device_bridge = None
-        self._device_mgr.disconnect_active()
-        self._cached_flat = []
-        self._cached_root = None
-        self.device_disconnected.emit()
-
-    # -- Properties -----------------------------------------------------------
-
-    @property
-    def cached_flat(self) -> list:
-        return self._cached_flat
-
-    @property
-    def cached_root(self) -> dict:
-        return self._cached_root or {}
-
-    @property
-    def active_device(self):
-        return self._device_mgr.active
-
-    @property
-    def poco_worker(self) -> PocoWorker | None:
-        return self._poco_worker
-
-    @property
-    def has_screenshot_worker(self) -> bool:
-        return self._screenshot_worker is not None
-
-    def load_tree(self):
-        """Refresh tree data from active device."""
-        device = self._device_mgr.active
-        if device and device.poco:
-            self._load_tree(device)
-
-    def stop_workers_for_offline(self):
-        """Stop screenshot and poco workers when device goes offline."""
-        self._stop_screenshot_worker()
-        if self._poco_worker:
-            self._poco_worker.quit()
-            self._poco_worker.wait(2000)
-            self._poco_worker = None
-
-    def restart_screenshot(self, device: Device):
-        """Restart screenshot worker when device comes back online."""
-        self._start_screenshot_worker(device)
-
     # -- Internal -------------------------------------------------------------
 
     def _start_screenshot_worker(self, device: Device):
-        self._stop_screenshot_worker()
+        self._stop_screenshot_worker_fast()
         self._screenshot_worker = ScreenshotWorker(device, fps=5, parent=self)
         self._screenshot_worker.screenshot_ready.connect(self.screenshot_ready.emit)
         self._screenshot_worker.start()
 
-    def _stop_screenshot_worker(self):
-        if self._screenshot_worker:
-            self._screenshot_worker.stop()
+    def _stop_screenshot_worker_fast(self):
+        """Stop screenshot worker WITHOUT blocking the main thread.
+
+        Requests the thread to stop and detaches immediately.  The QThread
+        will finish on its own (daemon=True).  This avoids the 2-second
+        ``wait()`` that was blocking the UI.
+        """
+        sw = self._screenshot_worker
+        if sw:
+            sw.requestInterruption()
+            sw._stop_event.set()
             self._screenshot_worker = None
-
-    def _load_tree(self, device: Device):
-        if device.poco:
-            try:
-                root = device.poco.get_root()
-                self._cached_root = root
-                self._cached_flat = device.poco._flatten_tree(root)
-                self.tree_loaded.emit(self._cached_flat)
-            except Exception as e:
-                logger.warning("Tree load failed: %s", e)
-
-    def _do_load_tree(self, device: Device):
-        """Background thread: load tree data (blocking TCP call)."""
-        self._load_tree(device)
 
     @staticmethod
     def _load_protocol(sdk_name: str):
