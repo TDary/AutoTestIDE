@@ -455,16 +455,18 @@ class MainWindow(QMainWindow):
 
     def _on_tree_loaded(self, flat_nodes: list):
         """Handle tree data loaded by ConnectionController."""
+        import time
+        t0 = time.time()
         root = self._conn_ctrl.cached_root
         if root:
             self.tree_panel.load_tree(root)
+            logger.info("TreePanel loaded in %.2fs", time.time() - t0)
+        t1 = time.time()
         device = self._conn_ctrl.active_device
         if device:
             self.clickable_panel.set_device(device)
-        # clickable_panel.load_clickable_nodes does blocking TCP (get_attributes)
-        # so we run it via QApplication.processEvents-safe approach:
-        # first gather data in background, then update UI on main thread
         self.clickable_panel.load_clickable_nodes(flat_nodes)
+        logger.info("ClickablePanel loaded %d nodes in %.2fs", len(flat_nodes), time.time() - t1)
 
     def _on_connection_failed(self, error_msg: str):
         """Show connection failure dialog."""

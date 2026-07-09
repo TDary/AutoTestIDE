@@ -92,13 +92,16 @@ class ClickablePanel(QWidget):
             if any(kw in name for kw in _CLICKABLE_NAME_KEYWORDS):
                 candidates.append(node)
 
-        # Step 2: immediately add all candidates to the table (no TCP)
+        # Step 2: batch add all candidates to the table (disable updates during insert)
+        self._table.setUpdatesEnabled(False)
         for node in candidates:
             payload = node.get("payload", {})
             node_id = node.get("node_id", "")
             name = node.get("name", "")
             path = paths.get(node_id, name)
             self._add_row(node, path, payload)
+        self._table.setUpdatesEnabled(True)
+        self._table.update()
 
         # Step 3: resize columns so the user sees content immediately
         self._table.resizeColumnsToContents()

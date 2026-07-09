@@ -16,10 +16,13 @@ class TreePanel(QTreeView):
         self._node_map: dict = {}
 
     def load_tree(self, root_node: dict):
+        self._model.blockSignals(True)
         self._model.clear()
         self._model.setHorizontalHeaderLabels(["名称", "类型", "文本"])
         self._node_map.clear()
         self._add_node(root_node, self._model.invisibleRootItem())
+        self._model.blockSignals(False)
+        self._model.layoutChanged.emit()
 
     def _add_node(self, node: dict, parent_item):
         stack = [(node, parent_item)]
