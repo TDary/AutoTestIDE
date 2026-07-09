@@ -457,6 +457,9 @@ class MainWindow(QMainWindow):
         device = self._conn_ctrl.active_device
         if device:
             self.clickable_panel.set_device(device)
+        # clickable_panel.load_clickable_nodes does blocking TCP (get_attributes)
+        # so we run it via QApplication.processEvents-safe approach:
+        # first gather data in background, then update UI on main thread
         self.clickable_panel.load_clickable_nodes(flat_nodes)
 
     def _on_connection_failed(self, error_msg: str):

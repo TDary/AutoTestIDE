@@ -4,7 +4,9 @@ Owns PocoWorker, ScreenshotWorker, and DeviceBridge instances.  Emits signals
 that MainWindow receives so the UI can update without knowing about worker
 creation details.
 
-All connect operations are run in a background thread to avoid blocking the UI.
+Connect operations (TCP handshake) run in a background thread to avoid
+blocking the UI.  After the handshake succeeds, a signal tells the main
+thread to set up workers and load data.
 """
 
 import threading
@@ -22,6 +24,7 @@ logger = getLogger(__name__)
 class ConnectionController(QObject):
     """Manages device connection lifecycle and worker orchestration."""
 
+    # -- Signals to MainWindow (all emitted on main thread via Qt queued connection) --
     device_connected = pyqtSignal(object)   # Device
     device_disconnected = pyqtSignal()
     status_changed = pyqtSignal(str)        # forwarded from DeviceBridge
@@ -31,6 +34,7 @@ class ConnectionController(QObject):
     screenshot_ready = pyqtSignal(bytes)
     tree_loaded = pyqtSignal(list)          # flat node list
     connection_failed = pyqtSignal(str)     # error message
+    handshake_done = pyqtSignal(object)     # Device -- tells main thread to do post-connect setup
 
     def __init__(self, device_mgr: DeviceManager, parent=None):
         super().__init__(parent)
@@ -41,13 +45,16 @@ class ConnectionController(QObject):
         self._cached_flat: list = []
         self._cached_root: dict | None = None
 
-    # -- Public API -----------------------------------------------------------
+        # When handshake completes in background thread, do setup on main thread
+        self.handshake_done.connect(self._on_device_connected)
+
+    # -- Public API (non-blocking, spawns background thread) ------------------
 
     def connect_android(self, serial: str, sdk_name: str, remote_port: int = 13000):
         """Connect an Android device asynchronously (non-blocking)."""
         protocol = self._load_protocol(sdk_name)
         threading.Thread(
-            target=self._do_connect_android,
+            target=self._do_handshake_android,
             args=(serial, remote_port, protocol),
             daemon=True,
         ).start()
@@ -56,7 +63,7 @@ class ConnectionController(QObject):
         """Connect to a local port asynchronously (non-blocking)."""
         protocol = self._load_protocol(sdk_name)
         threading.Thread(
-            target=self._do_connect_local,
+            target=self._do_handshake_local,
             args=(port, protocol),
             daemon=True,
         ).start()
@@ -65,56 +72,76 @@ class ConnectionController(QObject):
         """Connect to an IP device asynchronously (non-blocking)."""
         protocol = self._load_protocol(sdk_name)
         threading.Thread(
-            target=self._do_connect_ip,
+            target=self._do_handshake_ip,
             args=(host, port, protocol),
             daemon=True,
         ).start()
 
-    def _do_connect_android(self, serial: str, remote_port: int, protocol):
-        """Background thread: connect Android device."""
+    # -- Background thread methods (TCP handshake only) ----------------------
+
+    def _do_handshake_android(self, serial: str, remote_port: int, protocol):
         try:
             device = self._device_mgr.connect_android(
                 serial, remote_port=remote_port, protocol=protocol,
             )
             if device.status != DeviceState.ONLINE:
-                msg = f"device offline ({device.status})"
-                if device.last_error:
-                    msg = f"{device.last_error} — device offline"
-                logger.warning("Android device not online: %s", msg)
-                self.connection_failed.emit(msg)
+                self.connection_failed.emit(f"Device offline: {device._last_error or 'unknown'}")
                 return
-            self._on_device_connected(device)
+            self.handshake_done.emit(device)
         except Exception as e:
             logger.warning("Android connect failed: %s", e)
             self.connection_failed.emit(str(e))
 
-    def _do_connect_local(self, port: int, protocol):
-        """Background thread: connect local port."""
+    def _do_handshake_local(self, port: int, protocol):
         try:
             device = self._device_mgr.connect_local(port, protocol=protocol)
             if device.status != DeviceState.ONLINE:
-                msg = device.last_error or f"device offline ({device.status})"
-                logger.warning("Local device not online: %s", msg)
-                self.connection_failed.emit(msg)
+                self.connection_failed.emit(f"Device offline: {device._last_error or 'unknown'}")
                 return
-            self._on_device_connected(device)
+            self.handshake_done.emit(device)
         except Exception as e:
             logger.warning("Local connect failed: %s", e)
             self.connection_failed.emit(str(e))
 
-    def _do_connect_ip(self, host: str, port: int, protocol):
-        """Background thread: connect IP device."""
+    def _do_handshake_ip(self, host: str, port: int, protocol):
         try:
             device = self._device_mgr.connect_ip(host=host, port=port, protocol=protocol)
             if device.status != DeviceState.ONLINE:
-                msg = device.last_error or f"device offline ({device.status})"
-                logger.warning("IP device not online: %s", msg)
-                self.connection_failed.emit(msg)
+                self.connection_failed.emit(f"Device offline: {device._last_error or 'unknown'}")
                 return
-            self._on_device_connected(device)
+            self.handshake_done.emit(device)
         except Exception as e:
             logger.warning("IP connect failed: %s", e)
             self.connection_failed.emit(str(e))
+
+    # -- Main-thread setup (after handshake succeeds) ------------------------
+
+    def _on_device_connected(self, device: Device):
+        """Post-connect setup on MAIN THREAD: create bridge, workers, load tree."""
+        # DeviceBridge
+        self._device_bridge = DeviceBridge(device, self)
+        self._device_bridge.status_changed.connect(self.status_changed.emit)
+
+        # PocoWorker
+        self._poco_worker = PocoWorker(device, self)
+        self._poco_worker.inspect_result.connect(self.inspect_result.emit)
+        self._poco_worker.inspect_failed.connect(self.inspect_failed.emit)
+        self._poco_worker.swipe_done.connect(self.swipe_done.emit)
+
+        # ScreenshotWorker
+        self._start_screenshot_worker(device)
+
+        # Notify MainWindow first (so UI shows "connected")
+        self.device_connected.emit(device)
+
+        # Load tree in background thread (get_root is blocking TCP)
+        threading.Thread(
+            target=self._do_load_tree,
+            args=(device,),
+            daemon=True,
+        ).start()
+
+    # -- Disconnect -----------------------------------------------------------
 
     def disconnect(self):
         """Disconnect device and stop all workers."""
@@ -129,6 +156,8 @@ class ConnectionController(QObject):
         self._cached_flat = []
         self._cached_root = None
         self.device_disconnected.emit()
+
+    # -- Properties -----------------------------------------------------------
 
     @property
     def cached_flat(self) -> list:
@@ -170,27 +199,6 @@ class ConnectionController(QObject):
 
     # -- Internal -------------------------------------------------------------
 
-    def _on_device_connected(self, device: Device):
-        """Post-connect setup: create bridge, workers, load tree."""
-        # DeviceBridge
-        self._device_bridge = DeviceBridge(device, self)
-        self._device_bridge.status_changed.connect(self.status_changed.emit)
-
-        # PocoWorker
-        self._poco_worker = PocoWorker(device, self)
-        self._poco_worker.inspect_result.connect(self.inspect_result.emit)
-        self._poco_worker.inspect_failed.connect(self.inspect_failed.emit)
-        self._poco_worker.swipe_done.connect(self.swipe_done.emit)
-
-        # ScreenshotWorker
-        self._start_screenshot_worker(device)
-
-        # Load tree
-        self._load_tree(device)
-
-        # Notify MainWindow
-        self.device_connected.emit(device)
-
     def _start_screenshot_worker(self, device: Device):
         self._stop_screenshot_worker()
         self._screenshot_worker = ScreenshotWorker(device, fps=5, parent=self)
@@ -211,6 +219,10 @@ class ConnectionController(QObject):
                 self.tree_loaded.emit(self._cached_flat)
             except Exception as e:
                 logger.warning("Tree load failed: %s", e)
+
+    def _do_load_tree(self, device: Device):
+        """Background thread: load tree data (blocking TCP call)."""
+        self._load_tree(device)
 
     @staticmethod
     def _load_protocol(sdk_name: str):
