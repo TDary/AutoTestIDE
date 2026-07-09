@@ -20,6 +20,8 @@ class ScreenshotWorker(QThread):
 
     def run(self):
         while not self._stop_event.wait(timeout=self._interval):
+            if self.isInterruptionRequested():
+                break
             if self._device.status != DeviceState.ONLINE:
                 self._stop_event.wait(timeout=1.0)
                 continue
@@ -30,6 +32,7 @@ class ScreenshotWorker(QThread):
                 logger.warning("Screenshot capture failed", exc_info=True)
 
     def stop(self):
+        self.requestInterruption()
         self._stop_event.set()
         self.wait(2000)
 

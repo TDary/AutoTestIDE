@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, QSize, QTimer
@@ -885,7 +884,6 @@ class MainWindow(QMainWindow):
         self._disconnect_device()
         self._device_mgr.shutdown()
         super().closeEvent(event)
-        os._exit(0)
 
     def changeEvent(self, event):
         super().changeEvent(event)
