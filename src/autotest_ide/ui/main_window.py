@@ -557,24 +557,11 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _load_protocol(sdk_name: str):
-        from autotest_ide.sdks import PROTOCOL_REGISTRY
-        import importlib
-        if sdk_name in PROTOCOL_REGISTRY:
-            spec = PROTOCOL_REGISTRY[sdk_name]
-            module_path, class_name = spec.rsplit(":", 1)
-            mod = importlib.import_module(module_path)
-            return getattr(mod, class_name)()
-        # fallback: try sdks package by name
+        from autotest_ide.sdks import load_protocol
         try:
-            mod = importlib.import_module(f"autotest_ide.sdks.{sdk_name}.protocol")
-            cls = getattr(mod, f"{sdk_name.upper()}Protocol", None)
-            if cls:
-                return cls()
-        except (ImportError, AttributeError):
-            pass
-        # final fallback: jx4
-        from autotest_ide.sdks.jx4.protocol import JX4Protocol
-        return JX4Protocol()
+            return load_protocol(sdk_name)
+        except ValueError:
+            return load_protocol("jx4")
 
     def _start_screenshot_worker(self, device):
         self._stop_screenshot_worker()

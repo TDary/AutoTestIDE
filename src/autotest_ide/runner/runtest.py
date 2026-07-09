@@ -4,7 +4,6 @@ Loads and executes the user's .air/script.py with an injected namespace
 containing poco, snapshot, assert_exists, log.
 """
 import argparse
-import importlib
 import os
 import signal
 import sys
@@ -14,33 +13,12 @@ from pathlib import Path
 
 from autotest_ide.core.log import getLogger, setup_logging
 from autotest_ide.core.poco_client import PocoClient
-from autotest_ide.core.protocol_base import PocoProtocol
 from autotest_ide.runner.recorder import RecordingPocoClient
 from autotest_ide.runner.reporter import Reporter
 from autotest_ide.runner.runtime import build_namespace
-from autotest_ide.sdks import PROTOCOL_REGISTRY
+from autotest_ide.sdks import load_protocol
 
 logger = getLogger(__name__)
-
-
-def _load_protocol(spec: str) -> PocoProtocol:
-    """Load a protocol class from a ``package.module:ClassName`` spec.
-
-    Accepts either a registry short name (e.g. ``"jx4"``) or a fully
-    qualified ``package.module:ClassName`` spec.
-    """
-    if ":" in spec:
-        module_path, class_name = spec.rsplit(":", 1)
-    elif spec in PROTOCOL_REGISTRY:
-        full_spec = PROTOCOL_REGISTRY[spec]
-        module_path, class_name = full_spec.rsplit(":", 1)
-    else:
-        # try sdks package by name
-        module_path = f"autotest_ide.sdks.{spec}.protocol"
-        class_name = spec.upper() + "Protocol"
-    mod = importlib.import_module(module_path)
-    cls = getattr(mod, class_name)
-    return cls()
 
 
 def _watchdog(timeout: int):
@@ -74,10 +52,10 @@ def main():
 
     # Load protocol adapter — fall back to jx4 on failure
     try:
-        protocol = _load_protocol(args.protocol)
+        protocol = load_protocol(args.protocol)
     except Exception as e:
         logger.error("Failed to load protocol %r: %s", args.protocol, e)
-        protocol = _load_protocol("jx4")
+        protocol = load_protocol("jx4")
 
     # Setup timeout: POSIX uses SIGALRM, Windows uses watchdog thread
     if hasattr(signal, "SIGALRM"):
