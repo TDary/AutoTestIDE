@@ -405,8 +405,11 @@ class MainWindow(QMainWindow):
     def _connect_selected_device(self):
         import time
         t0 = time.time()
+        logger.info("_connect_selected_device ENTERED")
         data = self.device_combo.currentData()
+        logger.info("_connect_selected_device data=%s", data)
         if not data:
+            logger.info("_connect_selected_device: no data, returning")
             return
         kind, identifier, state = data
         if kind == "ip":
@@ -416,16 +419,16 @@ class MainWindow(QMainWindow):
             from PyQt5.QtWidgets import QMessageBox
             QMessageBox.warning(self, "无法连接", f"设备状态为 {state}，请先在手机上允许USB调试授权。")
             return
-        logger.info("STEP 1: _disconnect_device start %.3fs", time.time()-t0)
+        logger.info(">>> STEP 1 disconnect start")
         self._disconnect_device()
-        logger.info("STEP 2: _disconnect_device done %.3fs", time.time()-t0)
+        logger.info(">>> STEP 2 disconnect end")
         sdk_name = self.sdk_combo.currentData() or "jx4"
-        logger.info("STEP 3: connect_local start kind=%s port=%s sdk=%s %.3fs", kind, identifier, sdk_name, time.time()-t0)
+        logger.info(">>> STEP 3 connect start kind=%s port=%s sdk=%s", kind, identifier, sdk_name)
         if kind == "android":
             self._conn_ctrl.connect_android(serial=identifier, sdk_name=sdk_name)
         else:
             self._conn_ctrl.connect_local(port=identifier, sdk_name=sdk_name)
-        logger.info("STEP 4: connect_local done %.3fs — UI should be responsive now", time.time()-t0)
+        logger.info(">>> STEP 4 connect end — UI should be responsive")
 
     def _on_device_connected_ui(self, device):
         """UI updates after ConnectionController reports device connected."""
@@ -483,8 +486,9 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, "连接失败", f"无法连接设备\n{error_msg}")
 
     def _disconnect_device(self):
-        logger.info("Disconnecting device")
+        logger.info(">>> _disconnect_device called")
         self._conn_ctrl.disconnect()
+        logger.info(">>> _disconnect_device returned")
 
     def _connect_ip_device(self):
         text, ok = QInputDialog.getText(

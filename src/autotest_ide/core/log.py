@@ -48,6 +48,10 @@ def setup_logging(filename: str = "autotest_ide.log", level: int = logging.INFO)
         fmt = _SanitizingFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
         handler.setFormatter(fmt)
         root.addHandler(handler)
+        # Flush after every write so logs appear immediately (critical for
+        # diagnosing UI freezes — buffered lines would be invisible if the
+        # app hangs before the next flush cycle).
+        handler.flush = lambda: handler.stream.flush() if handler.stream else None
 
     if getattr(sys, "frozen", False):
         def excepthook(exc_type, exc_value, exc_tb):

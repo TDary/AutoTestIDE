@@ -312,9 +312,9 @@ class JX4Protocol(PocoProtocol):
     def capture_screenshot(self) -> bytes:
         """Capture the primary screen using ctypes BitBlt (PC only).
 
-        Uses raw Win32 ``BitBlt`` instead of ``PIL.ImageGrab.grab`` to
-        avoid the GDI Desktop Window-Station lock that freezes the UI when
-        capturing fullscreen DirectX / OpenGL game windows.
+        JX4 has no socket screenshot command.  Uses BitBlt with a 500ms
+        timeout guard — if the grab stalls on a fullscreen GPU game,
+        raises PocoError so the ScreenshotWorker backs off.
         """
         from io import BytesIO
         img = self._grab_via_bitblt()
@@ -323,64 +323,55 @@ class JX4Protocol(PocoProtocol):
         return buf.getvalue()
 
     def _grab_via_bitblt(self):
-        """Screen grab using ctypes BitBlt — avoids Window Station lock."""
+        """Screen grab via ctypes BitBlt with 500ms timeout.
+
+        BitBlt stalls the Desktop Window Station on fullscreen GPU games
+        for seconds.  We run it in a thread and give up after 500ms so
+        the Qt event loop never freezes.
+        """
         import ctypes
         from ctypes import Structure, wintypes
         from PIL import Image
+        import concurrent.futures
 
         user32 = ctypes.windll.user32
         gdi32 = ctypes.windll.gdi32
-
         SRCCOPY = 0x00CC0020
 
-        # Manual BITMAPINFOHEADER definition (wintypes lacks BITMAPINFO)
-        class BITMAPINFOHEADER(Structure):
+        class BIH(Structure):
             _fields_ = [
-                ("biSize",          wintypes.DWORD),
-                ("biWidth",         wintypes.LONG),
-                ("biHeight",        wintypes.LONG),
-                ("biPlanes",        wintypes.WORD),
-                ("biBitCount",      wintypes.WORD),
-                ("biCompression",   wintypes.DWORD),
-                ("biSizeImage",     wintypes.DWORD),
-                ("biXPelsPerMeter", wintypes.LONG),
-                ("biYPelsPerMeter", wintypes.LONG),
-                ("biClrUsed",       wintypes.DWORD),
-                ("biClrImportant",  wintypes.DWORD),
+                ("biSize", wintypes.DWORD), ("biWidth", wintypes.LONG),
+                ("biHeight", wintypes.LONG), ("biPlanes", wintypes.WORD),
+                ("biBitCount", wintypes.WORD), ("biCompression", wintypes.DWORD),
+                ("biSizeImage", wintypes.DWORD), ("biXPelsPerMeter", wintypes.LONG),
+                ("biYPelsPerMeter", wintypes.LONG), ("biClrUsed", wintypes.DWORD),
+                ("biClrImportant", wintypes.DWORD),
             ]
 
-        # Get screen dimensions
         width = user32.GetSystemMetrics(0)
         height = user32.GetSystemMetrics(1)
 
-        # Create device contexts
-        hdc_screen = user32.GetDC(0)
-        hdc_mem = gdi32.CreateCompatibleDC(hdc_screen)
-        hbitmap = gdi32.CreateCompatibleBitmap(hdc_screen, width, height)
-        gdi32.SelectObject(hdc_mem, hbitmap)
+        def _grab():
+            hdc = user32.GetDC(0)
+            mem = gdi32.CreateCompatibleDC(hdc)
+            bmp = gdi32.CreateCompatibleBitmap(hdc, width, height)
+            old = gdi32.SelectObject(mem, bmp)
+            gdi32.BitBlt(mem, 0, 0, width, height, hdc, 0, 0, SRCCOPY)
+            h = BIH()
+            h.biSize = ctypes.sizeof(h); h.biWidth = width
+            h.biHeight = -height; h.biPlanes = 1; h.biBitCount = 32
+            h.biCompression = 0
+            buf = ctypes.create_string_buffer(width * height * 4)
+            gdi32.GetDIBits(mem, bmp, 0, height, buf, ctypes.byref(h), 0)
+            gdi32.SelectObject(mem, old)
+            gdi32.DeleteObject(bmp); gdi32.DeleteDC(mem); user32.ReleaseDC(0, hdc)
+            return Image.frombytes("RGB", (width, height), buf, "raw", "BGRX")
 
-        # Copy screen
-        gdi32.BitBlt(hdc_mem, 0, 0, width, height, hdc_screen, 0, 0, SRCCOPY)
-
-        # Read pixel data via GetDIBits
-        header = BITMAPINFOHEADER()
-        header.biSize = ctypes.sizeof(header)
-        header.biWidth = width
-        header.biHeight = -height  # top-down
-        header.biPlanes = 1
-        header.biBitCount = 32
-        header.biCompression = 0  # BI_RGB
-
-        buf_size = width * height * 4
-        buf = ctypes.create_string_buffer(buf_size)
-        gdi32.GetDIBits(hdc_mem, hbitmap, 0, height, buf, ctypes.byref(header), 0)
-
-        # Cleanup
-        gdi32.DeleteObject(hbitmap)
-        gdi32.DeleteDC(hdc_mem)
-        user32.ReleaseDC(0, hdc_screen)
-
-        return Image.frombytes("RGB", (width, height), buf, "raw", "BGRX", 0, 1)
+        with concurrent.futures.ThreadPoolExecutor(1) as pool:
+            try:
+                return pool.submit(_grab).result(timeout=0.5)
+            except concurrent.futures.TimeoutError:
+                raise PocoError("screen grab timed out (fullscreen GPU window)")
 
 
 # ── JX4 → Poco hierarchy converter ─────────────────────────────────

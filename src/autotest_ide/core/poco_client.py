@@ -250,12 +250,10 @@ class PocoClient:
         return self._request_json("inspect_by_point", x, y)
 
     def screenshot(self) -> bytes:
-        local = self._protocol.capture_screenshot()
-        if local is not None:
-            return local
-        # JX4 returns None when ImageGrab times out on fullscreen GPU windows.
-        # Other protocols (PocoText) have no local capture and return None
-        # by default, falling through to the TCP binary screenshot command.
+        result = self._protocol.capture_screenshot()
+        if result is not None:
+            return result
+        # PocoTextProtocol etc. return None → fall back to TCP binary cmd
         return self._request_binary("screenshot")
 
     def heartbeat(self) -> bool:

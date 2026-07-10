@@ -79,6 +79,7 @@ class ConnectionController(QObject):
 
     def disconnect(self):
         """Disconnect device -- non-blocking, cleanup runs in background thread."""
+        logger.info(">>> CC.disconnect enter")
         # Snapshot references on main thread (safe, no blocking)
         sw = self._screenshot_worker
         pw = self._poco_worker
@@ -89,12 +90,14 @@ class ConnectionController(QObject):
         self._cached_root = None
         # Notify UI immediately
         self.device_disconnected.emit()
+        logger.info(">>> CC.disconnect emitted device_disconnected")
         # Cleanup in background thread (join/wait calls are safe there)
         threading.Thread(
             target=self._do_disconnect_cleanup,
             args=(sw, pw),
             daemon=True,
         ).start()
+        logger.info(">>> CC.disconnect returning to caller")
 
     def load_tree(self):
         """Refresh tree data from active device -- non-blocking."""
@@ -259,7 +262,10 @@ class ConnectionController(QObject):
         self._stop_screenshot_worker_fast()
         self._screenshot_worker = ScreenshotWorker(device, fps=1, parent=self)
         self._screenshot_worker.screenshot_ready.connect(self.screenshot_ready.emit)
-        self._screenshot_worker.start()
+        # Delayed start: wait 2s after connect before first screenshot
+        # to avoid BitBlt locking the Window Station during handshake
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(2000, self._screenshot_worker.start)
 
     def _stop_screenshot_worker_fast(self):
         """Stop screenshot worker WITHOUT blocking the main thread.
