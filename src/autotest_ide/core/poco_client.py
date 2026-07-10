@@ -95,15 +95,18 @@ class PocoClient:
 
     def close(self):
         """Close the TCP connection and stop the recv loop."""
+        # Merge both _close_lock acquisitions into one so that _closed=True
+        # and _sock=None happen atomically — no gap where another thread
+        # sees _closed=True but _sock is still not None.
         with self._close_lock:
             if self._closed:
                 return
             self._closed = True
-        with self._pending_cond:
-            self._pending_cond.notify_all()
-        with self._close_lock:
             sock = self._sock
             self._sock = None
+        # Wake recv loop so it can check _closed and exit.
+        with self._pending_cond:
+            self._pending_cond.notify_all()
         if sock is not None:
             # Send farewell command so the server can clean up (JX4: CloseConnection).
             # Best-effort — never block on errors.
@@ -167,22 +170,24 @@ class PocoClient:
             try:
                 self._protocol.send_request(self._sock, wire_method, args, kwargs)
             except OSError as e:
-                with self._pending_cond:
-                    for i, (f, _) in enumerate(self._pending):
-                        if f is future:
-                            del self._pending[i]
-                            break
+                # Mark the future as failed so the recv loop can skip it
+                # when popped.  Do NOT try to delete from _pending by index —
+                # the recv loop may have already popped earlier entries,
+                # making indices stale and causing wrong-entry deletion.
+                future.set_exception(PocoConnectionError(f"send failed: {e}"))
                 logger.warning("PocoClient send failed: %s", e)
                 raise PocoConnectionError(f"send failed: {e}")
         try:
             result = future.result(timeout=timeout)
             return self._protocol.transform_result(method, result)
         except TimeoutError:
-            with self._pending_cond:
-                for i, (f, _) in enumerate(self._pending):
-                    if f is future:
-                        del self._pending[i]
-                        break
+            # Mark future as timed-out before close() so recv loop skips it.
+            # close() will drain remaining pending futures; the timed-out
+            # future is already done, so drain skips it — the caller gets
+            # PocoTimeoutError from the raise below, not PocoConnectionError.
+            future.set_exception(
+                PocoTimeoutError(f"{wire_method} timed out after {timeout}s")
+            )
             self.close()
             logger.warning("PocoClient %s timed out after %ss", wire_method, timeout)
             raise PocoTimeoutError(f"{wire_method} timed out after {timeout}s")
@@ -195,8 +200,25 @@ class PocoClient:
                 if self._closed:
                     break
                 future, expect_binary = self._pending.popleft()
+            # Skip futures already resolved (timed out or send-failed).
+            # The request was either never sent on the wire (send failure)
+            # or the client is about to be closed (timeout), so there is
+            # no response to consume from the socket — skipping keeps the
+            # FIFO stream aligned for the next pending future.
+            if future.done():
+                continue
+            # Snapshot socket under _close_lock to avoid crash if close()
+            # nulls _sock between popleft and read_response.  Also re-check
+            # _closed here — a concurrent close() may have set _closed=True
+            # after the loop-top check but before this point.
+            with self._close_lock:
+                if self._closed or self._sock is None:
+                    if not future.done():
+                        future.set_exception(PocoConnectionError("client closed"))
+                    break
+                sock = self._sock
             try:
-                result = self._protocol.read_response(self._sock, expect_binary)
+                result = self._protocol.read_response(sock, expect_binary)
                 if isinstance(result, dict) and "error" in result:
                     err = result["error"]
                     if isinstance(err, dict):
@@ -212,13 +234,15 @@ class PocoClient:
                     future.set_result(result)
             except (ConnectionError, OSError) as e:
                 logger.debug("PocoClient recv connection error: %s", e)
-                future.set_exception(PocoConnectionError(str(e)))
+                if not future.done():
+                    future.set_exception(PocoConnectionError(str(e)))
                 self._drain_pending(PocoConnectionError(str(e)))
                 self.close()
                 break
             except Exception as e:
                 logger.warning("PocoClient recv unexpected error: %s", e, exc_info=True)
-                future.set_exception(e)
+                if not future.done():
+                    future.set_exception(e)
                 self._drain_pending(e)
                 self.close()
                 break

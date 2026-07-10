@@ -70,12 +70,15 @@ def _read_response(sock: socket.socket) -> str:
 
     Returns empty string if the response is malformed.
     """
-    buf = b""
-    while not buf.endswith(b"::altend"):
+    # Use bytearray for in-place append (O(n) total) instead of bytes
+    # concatenation (buf += chunk copies the whole buffer each time → O(n²)).
+    buf = bytearray()
+    end_marker = b"::altend"
+    while not buf.endswith(end_marker):
         chunk = sock.recv(4096)
         if not chunk:
             raise PocoConnectionError("connection closed")
-        buf += chunk
+        buf.extend(chunk)
         # Safety cap: avoid unbounded buffering if a malformed server
         # never sends ::altend. 16 MB is well above any sane screenshot.
         if len(buf) > 16 * 1024 * 1024:
