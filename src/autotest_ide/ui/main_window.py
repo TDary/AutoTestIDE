@@ -419,46 +419,64 @@ class MainWindow(QMainWindow):
             from PyQt5.QtWidgets import QMessageBox
             QMessageBox.warning(self, "无法连接", f"设备状态为 {state}，请先在手机上允许USB调试授权。")
             return
-        logger.info(">>> STEP 1 disconnect start")
         self._disconnect_device()
-        logger.info(">>> STEP 2 disconnect end")
         sdk_name = self.sdk_combo.currentData() or "jx4"
-        logger.info(">>> STEP 3 connect start kind=%s port=%s sdk=%s", kind, identifier, sdk_name)
+        logger.info("Connecting device kind=%s addr=%s sdk=%s", kind, identifier, sdk_name)
         if kind == "android":
             self._conn_ctrl.connect_android(serial=identifier, sdk_name=sdk_name)
         else:
             self._conn_ctrl.connect_local(port=identifier, sdk_name=sdk_name)
-        logger.info(">>> STEP 4 connect end — UI should be responsive")
+
+    def _set_conn_status(self, connected: bool) -> None:
+        """Switch the connection-status label between connected/disconnected.
+
+        Sets text, objectName (drives the QSS rule) and an inline stylesheet
+        that forces an immediate repaint.  The connected styling cannot rely
+        on ``_on_device_status_changed`` firing with ONLINE, because the
+        DeviceBridge is only created *after* the device is already online, so
+        it only observes *future* status transitions — the initial ONLINE
+        transition would otherwise never reach the UI.
+        """
+        if connected:
+            self._conn_status.setText(" ● 已连接 ")
+            self._conn_status.setObjectName("conn_status_connected")
+            self._conn_status.setStyleSheet(
+                "color: #a6e3a1; font-size: 13px; font-weight: bold; padding: 2px 8px;"
+            )
+        else:
+            self._conn_status.setText(" ● 未连接 ")
+            self._conn_status.setObjectName("conn_status_disconnected")
+            self._conn_status.setStyleSheet(
+                "color: #f38ba8; font-size: 13px; font-weight: bold; padding: 2px 8px;"
+            )
 
     def _on_device_connected_ui(self, device):
-        """UI updates after ConnectionController reports device connected."""
-        import time; t0 = time.time()
-        root = self._conn_ctrl.cached_root
-        if root:
-            self.tree_panel.load_tree(root)
-            logger.info("_on_device_connected_ui: tree_panel %.3fs", time.time()-t0)
-        flat = self._conn_ctrl.cached_flat
-        if flat:
-            self.clickable_panel.set_device(device)
-            self.clickable_panel.load_clickable_nodes(flat)
-            logger.info("_on_device_connected_ui: clickable_panel %.3fs", time.time()-t0)
-        self.status_device.setText(f"  设备: {device.name}  ")
-        sdk = self.sdk_combo.currentData() or "jx4"
-        self.status_protocol.setText(f"  协议: {device.poco.protocol_version or '-'} ({sdk})  ")
-        self._conn_status.setText(" ● 已连接 ")
-        self._conn_status.setStyleSheet(
-            "color: #a6e3a1; font-size: 13px; font-weight: bold; padding: 2px 8px;"
-        )
-        logger.info("_on_device_connected_ui: done %.3fs", time.time()-t0)
+        """UI updates after ConnectionController reports device connected.
+
+        The tree may not be loaded yet at this point (it loads async in
+        _do_load_tree); if cached data exists we populate eagerly, otherwise
+        _on_tree_loaded fills the panels once the hierarchy arrives.
+        """
+        try:
+            root = self._conn_ctrl.cached_root
+            flat = self._conn_ctrl.cached_flat
+            self.status_device.setText(f"  设备: {device.name}  ")
+            sdk = self.sdk_combo.currentData() or "jx4"
+            self.status_protocol.setText(f"  协议: {device.poco.protocol_version or '-'} ({sdk})  ")
+            self._set_conn_status(True)
+            if root:
+                self.tree_panel.load_tree(root)
+            if flat:
+                self.clickable_panel.set_device(device)
+                self.clickable_panel.load_clickable_nodes(flat)
+        except Exception:
+            logger.exception("Failed to update UI on device connect")
 
     def _on_device_disconnected_ui(self):
         """UI updates after ConnectionController reports device disconnected."""
         self.status_device.setText("  设备: 未连接  ")
         self.status_protocol.setText("  协议: -  ")
-        self._conn_status.setText(" ● 未连接 ")
-        self._conn_status.setStyleSheet(
-            "color: #f38ba8; font-size: 13px; font-weight: bold; padding: 2px 8px;"
-        )
+        self._set_conn_status(False)
         self.device_panel.clear_highlight()
         self.property_panel.show_properties({})
         self.tree_panel.load_tree({"name": "", "type": "", "payload": {}, "children": []})
@@ -467,18 +485,13 @@ class MainWindow(QMainWindow):
 
     def _on_tree_loaded(self, flat_nodes: list):
         """Handle tree data loaded by ConnectionController."""
-        import time
-        t0 = time.time()
         root = self._conn_ctrl.cached_root
         if root:
             self.tree_panel.load_tree(root)
-            logger.info("TreePanel loaded in %.2fs", time.time() - t0)
-        t1 = time.time()
         device = self._conn_ctrl.active_device
         if device:
             self.clickable_panel.set_device(device)
         self.clickable_panel.load_clickable_nodes(flat_nodes)
-        logger.info("ClickablePanel loaded %d nodes in %.2fs", len(flat_nodes), time.time() - t1)
 
     def _on_connection_failed(self, error_msg: str):
         """Show connection failure dialog."""
@@ -486,9 +499,7 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, "连接失败", f"无法连接设备\n{error_msg}")
 
     def _disconnect_device(self):
-        logger.info(">>> _disconnect_device called")
         self._conn_ctrl.disconnect()
-        logger.info(">>> _disconnect_device returned")
 
     def _connect_ip_device(self):
         text, ok = QInputDialog.getText(
@@ -533,16 +544,10 @@ class MainWindow(QMainWindow):
             if device.poco:
                 sdk = self.sdk_combo.currentData() or "jx4"
                 self.status_protocol.setText(f"  协议: {device.poco.protocol_version or '-'} ({sdk})  ")
-            self._conn_status.setText(" ● 已连接 ")
-            self._conn_status.setStyleSheet(
-                "color: #a6e3a1; font-size: 13px; font-weight: bold; padding: 2px 8px;"
-            )
+            self._set_conn_status(True)
         elif status in (DeviceState.OFFLINE.value, DeviceState.DISCONNECTED.value):
             self._conn_ctrl.stop_workers_for_offline()
-            self._conn_status.setText(" ● 未连接 ")
-            self._conn_status.setStyleSheet(
-                "color: #f38ba8; font-size: 13px; font-weight: bold; padding: 2px 8px;"
-            )
+            self._set_conn_status(False)
 
     def _on_inspect_requested(self, x: int, y: int):
         device = self._conn_ctrl.active_device

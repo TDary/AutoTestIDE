@@ -20,6 +20,7 @@ class ScreenshotWorker(QThread):
         self._consecutive_failures = 0
 
     def run(self):
+        logger.debug("ScreenshotWorker started")
         while not self._stop_event.wait(timeout=self._interval):
             if self.isInterruptionRequested():
                 break
@@ -31,15 +32,15 @@ class ScreenshotWorker(QThread):
                 self.screenshot_ready.emit(png_bytes)
                 self._consecutive_failures = 0
             except OSError as e:
-                # ImageGrab.grab() fails on fullscreen GPU-rendered windows
-                # — don't retry aggressively, back off exponentially
                 self._consecutive_failures += 1
-                logger.debug("Screenshot OSError: %s (failures=%d)", e, self._consecutive_failures)
+                logger.warning("Screenshot failed (attempt %d): %s",
+                               self._consecutive_failures, e)
                 backoff = min(2.0 * self._consecutive_failures, 10.0)
                 self._stop_event.wait(timeout=backoff)
-            except Exception:
-                logger.warning("Screenshot capture failed", exc_info=True)
+            except Exception as e:
                 self._consecutive_failures += 1
+                logger.warning("Screenshot failed (attempt %d): %s",
+                               self._consecutive_failures, e)
                 backoff = min(2.0 * self._consecutive_failures, 10.0)
                 self._stop_event.wait(timeout=backoff)
 

@@ -79,7 +79,6 @@ class ConnectionController(QObject):
 
     def disconnect(self):
         """Disconnect device -- non-blocking, cleanup runs in background thread."""
-        logger.info(">>> CC.disconnect enter")
         # Snapshot references on main thread (safe, no blocking)
         sw = self._screenshot_worker
         pw = self._poco_worker
@@ -90,14 +89,12 @@ class ConnectionController(QObject):
         self._cached_root = None
         # Notify UI immediately
         self.device_disconnected.emit()
-        logger.info(">>> CC.disconnect emitted device_disconnected")
         # Cleanup in background thread (join/wait calls are safe there)
         threading.Thread(
             target=self._do_disconnect_cleanup,
             args=(sw, pw),
             daemon=True,
         ).start()
-        logger.info(">>> CC.disconnect returning to caller")
 
     def load_tree(self):
         """Refresh tree data from active device -- non-blocking."""
@@ -217,9 +214,12 @@ class ConnectionController(QObject):
         """Background thread: load tree data (blocking TCP call)."""
         if device.poco:
             try:
+                import time; t0 = time.time()
                 root = device.poco.get_root()
                 self._cached_root = root
                 self._cached_flat = device.poco._flatten_tree(root)
+                logger.info("UI tree loaded: %d nodes in %.3fs",
+                            len(self._cached_flat), time.time() - t0)
                 self.tree_loaded.emit(self._cached_flat)
             except Exception as e:
                 logger.warning("Tree load failed: %s", e)
@@ -228,7 +228,6 @@ class ConnectionController(QObject):
 
     def _on_device_connected(self, device: Device):
         """Post-connect setup on MAIN THREAD: create bridge, workers, load tree."""
-        import time; t0 = time.time()
         # DeviceBridge
         self._device_bridge = DeviceBridge(device, self)
         self._device_bridge.status_changed.connect(self.status_changed.emit)
@@ -238,15 +237,12 @@ class ConnectionController(QObject):
         self._poco_worker.inspect_result.connect(self.inspect_result.emit)
         self._poco_worker.inspect_failed.connect(self.inspect_failed.emit)
         self._poco_worker.swipe_done.connect(self.swipe_done.emit)
-        logger.info("_on_device_connected: workers created %.3fs", time.time()-t0)
 
         # ScreenshotWorker
         self._start_screenshot_worker(device)
-        logger.info("_on_device_connected: screenshot started %.3fs", time.time()-t0)
 
         # Notify MainWindow first (so UI shows "connected")
         self.device_connected.emit(device)
-        logger.info("_on_device_connected: device_connected emitted %.3fs", time.time()-t0)
 
         # Load tree in background thread (get_root is blocking TCP)
         threading.Thread(
@@ -254,7 +250,6 @@ class ConnectionController(QObject):
             args=(device,),
             daemon=True,
         ).start()
-        logger.info("_on_device_connected: tree thread started %.3fs — all done", time.time()-t0)
 
     # -- Internal -------------------------------------------------------------
 

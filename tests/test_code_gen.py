@@ -2,6 +2,7 @@ from autotest_ide.core.code_gen import (
     OpMode, gen_click, gen_assert_exists,
     gen_long_click, gen_swipe, gen_input,
     gen_wait_for, gen_wait_for_gone,
+    _build_all_paths,
 )
 
 
@@ -142,3 +143,90 @@ def test_gen_wait_for_custom_timeout():
 
 def test_gen_wait_for_gone():
     assert gen_wait_for_gone("Panel/Loading", timeout=15) == "wait_for_gone('Panel/Loading', timeout=15)\n"
+
+
+# ── _build_all_paths ─────────────────────────────────────────────────
+
+
+def test_build_all_paths_simple():
+    flat = [
+        {"name": "root", "type": "", "payload": {}, "node_id": "0", "children": [
+            {"name": "Play", "type": "Button", "payload": {}, "node_id": "3"},
+        ]},
+    ]
+    paths = _build_all_paths(flat)
+    assert paths["3"] == "Play"
+
+
+def test_build_all_paths_nested():
+    flat = [
+        {"name": "root", "type": "", "payload": {}, "node_id": "0", "children": [
+            {"name": "Panel", "type": "Panel", "payload": {}, "node_id": "1", "children": [
+                {"name": "Play", "type": "Button", "payload": {}, "node_id": "3"},
+            ]},
+        ]},
+    ]
+    paths = _build_all_paths(flat)
+    assert paths["1"] == "Panel"
+    assert paths["3"] == "Panel/Play"
+
+
+def test_build_all_paths_skips_root_name():
+    flat = [
+        {"name": "root", "type": "", "payload": {}, "node_id": "0", "children": [
+            {"name": "Play", "type": "Button", "payload": {}, "node_id": "3"},
+        ]},
+    ]
+    paths = _build_all_paths(flat)
+    assert paths.get("0", "") == ""  # "root" name skipped → empty path
+
+
+def test_build_all_paths_jx4_embedded():
+    flat = [
+        {"name": "BtnStart", "type": "GameObject",
+         "payload": {"path": "Denglu/BtnStart"}, "node_id": "Denglu/BtnStart"},
+    ]
+    paths = _build_all_paths(flat)
+    assert paths["Denglu/BtnStart"] == "Denglu/BtnStart"
+
+
+def test_build_all_paths_empty():
+    assert _build_all_paths([]) == {}
+
+
+def test_build_all_paths_matches_build_path_on_large_tree():
+    """Regression: a deep 3000-node chain resolves in O(n) and matches _build_path.
+
+    Previously load_clickable_nodes called _build_path per node, rebuilding the
+    parent map each time → O(n^2) ≈ millions of ops, freezing the UI for seconds.
+    _build_all_paths must stay sub-second on this input.
+    """
+    import time
+
+    from autotest_ide.core.code_gen import _build_path
+
+    # Build a deep nested chain: N0 → N1 → ... → N3000 (3001 nodes).
+    depth = 3000
+    node = {"name": "L", "type": "GameObject", "payload": {}, "node_id": str(depth), "children": []}
+    for i in range(depth - 1, -1, -1):
+        node = {"name": f"N{i}", "type": "GameObject", "payload": {}, "node_id": str(i), "children": [node]}
+    flat = [node]  # single root, fully nested
+
+    t0 = time.time()
+    paths = _build_all_paths(flat)
+    elapsed = time.time() - t0
+    # O(n) memoized — must finish well under a second. O(n^2) would take ~seconds.
+    assert elapsed < 1.0, f"_build_all_paths took {elapsed:.3f}s on {depth + 1} nodes"
+    assert len(paths) == depth + 1
+
+    # Spot-check semantics against _build_path on a sample of depths.
+    sample_ids = [str(d) for d in [0, 1, 50, 500, 1500, 2999, 3000]]
+    for nid in sample_ids:
+        n = {"name": f"N{nid}", "type": "GameObject", "payload": {}, "node_id": nid}
+        if nid == str(depth):
+            n["name"] = "L"
+        expected = _build_path(n, flat)
+        assert paths[nid] == expected, f"path mismatch for {nid}: {paths[nid]!r} != {expected!r}"
+
+    # Deepest node's path should contain every ancestor (3001 names → 3000 slashes).
+    assert paths[str(depth)].count("/") == depth

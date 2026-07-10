@@ -51,6 +51,57 @@ def _build_path(node: dict, all_nodes: list) -> str:
     return "/".join(parts) if parts else ""
 
 
+def _build_all_paths(flat_nodes: list) -> dict[str, str]:
+    """Build ``node_id -> path`` for every node in one O(n) pass.
+
+    This replaces the O(n^2) pattern of calling :func:`_build_path` once per
+    node, which rebuilt the whole parent map on every call.  Here the parent
+    map is built once and paths are resolved with memoization so shared
+    ancestors are walked only once — safe even for degenerate (list-like)
+    trees and cycle-guarded against malformed input.
+    """
+    paths: dict[str, str] = {}
+    if not flat_nodes:
+        return paths
+
+    by_id, parent_of = _build_parent_map(flat_nodes)
+    cache: dict[str, str] = {}
+
+    def _resolve(nid: str) -> str:
+        if not nid or nid not in by_id:
+            return ""
+        if nid in cache:
+            return cache[nid]
+
+        # Walk up, collecting not-yet-cached ancestors (cycle-safe via `seen`).
+        chain: list[str] = []
+        seen: set[str] = set()
+        cur = nid
+        while cur and cur not in cache and cur in by_id and cur not in seen:
+            seen.add(cur)
+            chain.append(cur)
+            cur = parent_of.get(cur, "")
+
+        # `cur` is now "", a cached ancestor, a missing node, or a cycle cut.
+        acc = cache[cur] if cur in cache else ""
+        for nid2 in reversed(chain):  # root-most first
+            node = by_id[nid2]
+            embedded = node.get("payload", {}).get("path", "")
+            if embedded:
+                acc = embedded
+            else:
+                name = node.get("name", "")
+                use_name = name if name and name != "root" else ""
+                if use_name:
+                    acc = f"{acc}/{use_name}" if acc else use_name
+            cache[nid2] = acc
+        return cache[nid]
+
+    for nid in by_id:
+        paths[nid] = _resolve(nid)
+    return paths
+
+
 def gen_click(node: dict, flat_nodes: list, x: int, y: int) -> str:
     """Generate a click/tap code line.
 

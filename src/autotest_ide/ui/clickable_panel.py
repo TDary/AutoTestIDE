@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
     QApplication,
 )
 
-from autotest_ide.core.code_gen import _build_path
+from autotest_ide.core.code_gen import _build_all_paths
 
 _CLR_ENABLED = QColor("#a6e3a1")
 _CLR_DISABLED = QColor("#f9e2af")
@@ -74,7 +74,7 @@ class ClickablePanel(QWidget):
     def load_clickable_nodes(self, flat_nodes: list) -> None:
         self._table.setRowCount(0)
         self._row_data.clear()
-        paths = _build_paths(flat_nodes)
+        paths = _build_all_paths(flat_nodes)
 
         # Step 1: pre-filter candidates by name keywords and components in payload (no TCP)
         candidates = []
@@ -203,18 +203,3 @@ def _attrs_has_button(attrs: dict) -> bool:
         return False
     comp_types = [c.get("type", "") for c in components if isinstance(c, dict)]
     return any("Button" in ct or "Toggle" in ct for ct in comp_types)
-
-
-# ── path builder (mirrors locator.py _build_parent_map) ──────────────
-
-
-def _build_paths(flat_nodes: list) -> dict[str, str]:
-    """Build node_id -> path mapping for all nodes."""
-    paths: dict[str, str] = {}
-    for node in flat_nodes:
-        path = _build_path(node, flat_nodes)
-        if path:
-            nid = node.get("node_id", "")
-            if nid:
-                paths[nid] = path
-    return paths

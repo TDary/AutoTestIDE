@@ -310,12 +310,7 @@ class JX4Protocol(PocoProtocol):
     # ── PC-native screenshot ──────────────────────────────────────
 
     def capture_screenshot(self) -> bytes:
-        """Capture the primary screen using ctypes BitBlt (PC only).
-
-        JX4 has no socket screenshot command.  Uses BitBlt with a 500ms
-        timeout guard — if the grab stalls on a fullscreen GPU game,
-        raises PocoError so the ScreenshotWorker backs off.
-        """
+        """Capture the primary screen using ctypes BitBlt (PC only)."""
         from io import BytesIO
         img = self._grab_via_bitblt()
         buf = BytesIO()
