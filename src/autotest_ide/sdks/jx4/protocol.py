@@ -309,39 +309,72 @@ class JX4Protocol(PocoProtocol):
 
     # ── PC-native screenshot ──────────────────────────────────────
 
-    def capture_screenshot(self) -> bytes | None:
+    def capture_screenshot(self) -> bytes:
         """Capture the primary screen using Pillow (PC only).
 
-        Uses ``ImageGrab.grab`` with ``include_layered_windows=False``
-        to avoid the GDI Window-Station lock that freezes the desktop when
-        capturing fullscreen GPU-rendered games.
-
-        A 5-second timeout guards against ``ImageGrab.grab()`` blocking
-        indefinitely on fullscreen DirectX / OpenGL windows.  If the grab
-        times out or fails, raises ``PocoError`` so PocoClient.screenshot()
-        won't fall through to the broken JX4 TCP screenshot path.
+        JX4 SDK has no binary screenshot command over socket, so we always
+        use local screen capture.  ``ImageGrab.grab`` is the default; if
+        it fails (fullscreen GPU window, etc.), we fall back to a ctypes
+        ``PrintWindow``-based grab that does not lock the Desktop Window
+        Station.
         """
-        from PIL import ImageGrab
         from io import BytesIO
-        import concurrent.futures
-
-        def _grab():
-            return ImageGrab.grab(include_layered_windows=False)
-
-        # ImageGrab.grab() can block indefinitely on fullscreen GPU windows.
-        # Run it with a timeout so it never freezes the UI.
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(_grab)
-            try:
-                img = future.result(timeout=5.0)
-            except concurrent.futures.TimeoutError:
-                raise PocoError("ImageGrab.grab() timed out (fullscreen GPU window)")
-            except OSError as e:
-                raise PocoError(f"ImageGrab.grab() failed: {e}")
-
+        try:
+            from PIL import ImageGrab
+            img = ImageGrab.grab(include_layered_windows=False)
+        except OSError:
+            # ImageGrab.grab() fails on fullscreen DirectX/OpenGL windows.
+            # Fall back to a non-blocking capture that doesn't lock the
+            # Window Station.
+            img = self._grab_via_bitblt()
         buf = BytesIO()
         img.save(buf, format="PNG")
         return buf.getvalue()
+
+    def _grab_via_bitblt(self):
+        """Fallback screen grab using ctypes BitBlt — avoids Window Station lock."""
+        import ctypes
+        from ctypes import wintypes
+        from PIL import Image
+
+        user32 = ctypes.windll.user32
+        gdi32 = ctypes.windll.gdi32
+
+        SRCCOPY = 0x00CC0020
+
+        # Get screen dimensions
+        width = user32.GetSystemMetrics(0)
+        height = user32.GetSystemMetrics(1)
+
+        # Create device contexts
+        hdc_screen = user32.GetDC(0)
+        hdc_mem = gdi32.CreateCompatibleDC(hdc_screen)
+        hbitmap = gdi32.CreateCompatibleBitmap(hdc_screen, width, height)
+        gdi32.SelectObject(hdc_mem, hbitmap)
+
+        # Copy screen — BitBlt without PrintWindow won't lock the station
+        gdi32.BitBlt(hdc_mem, 0, 0, width, height, hdc_screen, 0, 0, SRCCOPY)
+
+        # Convert to PIL Image via raw bytes
+        bmi = wintypes.BITMAPINFO()
+        bmi.bmiHeader.biSize = ctypes.sizeof(bmi.bmiHeader)
+        bmi.bmiHeader.biWidth = width
+        bmi.bmiHeader.biHeight = -height  # top-down bitmap
+        bmi.bmiHeader.biPlanes = 1
+        bmi.bmiHeader.biBitCount = 32
+        bmi.bmiHeader.biCompression = 0  # BI_RGB
+
+        buf_size = width * height * 4
+        buf = ctypes.create_string_buffer(buf_size)
+        gdi32.GetDIBits(hdc_mem, hbitmap, 0, height, buf, bmi, 0)
+
+        # Cleanup
+        gdi32.DeleteObject(hbitmap)
+        gdi32.DeleteDC(hdc_mem)
+        user32.ReleaseDC(0, hdc_screen)
+
+        img = Image.frombytes("RGB", (width, height), buf, "raw", "BGRX", 0, 1)
+        return img
 
 
 # ── JX4 → Poco hierarchy converter ─────────────────────────────────

@@ -257,7 +257,7 @@ class ConnectionController(QObject):
 
     def _start_screenshot_worker(self, device: Device):
         self._stop_screenshot_worker_fast()
-        self._screenshot_worker = ScreenshotWorker(device, fps=5, parent=self)
+        self._screenshot_worker = ScreenshotWorker(device, fps=1, parent=self)
         self._screenshot_worker.screenshot_ready.connect(self.screenshot_ready.emit)
         self._screenshot_worker.start()
 
