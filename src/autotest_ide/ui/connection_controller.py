@@ -82,6 +82,18 @@ class ConnectionController(QObject):
         # Snapshot references on main thread (safe, no blocking)
         sw = self._screenshot_worker
         pw = self._poco_worker
+        bridge = self._device_bridge
+        # Unregister DeviceBridge's status callback BEFORE nulling it.
+        # Without this, the heartbeat thread still calls _on_status →
+        # emits status_changed → forwards to MainWindow → ghost "connected"
+        # flash after disconnect.
+        device = self._device_mgr.active
+        if device and bridge:
+            device.on_status_change(lambda s: None)
+            try:
+                bridge.status_changed.disconnect(self.status_changed.emit)
+            except TypeError:
+                pass  # Signal not connected yet — fine, nothing to clean up
         self._screenshot_worker = None
         self._poco_worker = None
         self._device_bridge = None

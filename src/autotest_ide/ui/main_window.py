@@ -767,21 +767,26 @@ class MainWindow(QMainWindow):
 
     def _on_run_clicked(self):
         device = self._conn_ctrl.active_device
-        logger.info("_on_run_clicked: device=%s status=%s", device, getattr(device, 'status', None))
         if not device or device.status != DeviceState.ONLINE:
             self.console.append_text("错误: 没有在线设备", is_error=True)
             return
         script_path = getattr(self, "_current_script", None)
-        logger.info("_on_run_clicked: _current_script=%s _current_air=%s", script_path, getattr(self, "_current_air", None))
-        if script_path:
-            Path(script_path).write_text(self.editor.toPlainText(), encoding="utf-8")
-            air_dir = str(Path(script_path).parent)
-        else:
-            air_dir = getattr(self, "_current_air", None) or "test.air"
-            Path(air_dir).mkdir(exist_ok=True)
-            script = Path(air_dir) / "script.py"
-            script.write_text(self.editor.toPlainText(), encoding="utf-8")
-        logger.info("Running: air_dir=%s script_path=%s sdk=%s", air_dir, script_path, self.sdk_combo.currentData())
+        try:
+            if script_path:
+                parent = Path(script_path).parent
+                parent.mkdir(parents=True, exist_ok=True)
+                Path(script_path).write_text(self.editor.toPlainText(), encoding="utf-8")
+                air_dir = str(parent)
+            else:
+                air_dir = getattr(self, "_current_air", None) or "test.air"
+                Path(air_dir).mkdir(parents=True, exist_ok=True)
+                script = Path(air_dir) / "script.py"
+                script.write_text(self.editor.toPlainText(), encoding="utf-8")
+        except OSError as e:
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "保存失败",
+                                 f"无法保存脚本文件：{e}\n运行已中止。")
+            return
         sdk = self.sdk_combo.currentData() or "jx4"
         self._run_controller.start(
             str(air_dir), device.device_type, device.name,

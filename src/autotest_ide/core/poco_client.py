@@ -108,6 +108,16 @@ class PocoClient:
         with self._pending_cond:
             self._pending_cond.notify_all()
         if sock is not None:
+            # Set a socket timeout BEFORE shutdown so that any blocking
+            # recv() in the recv loop will time out within 1 second.
+            # On Windows, shutdown(SHUT_WR) does NOT reliably unblock a
+            # concurrent recv() on the same socket — without this timeout
+            # the recv thread could hang until the OS-level keepalive fires
+            # (minutes), preventing close()'s join(2s) from succeeding.
+            try:
+                sock.settimeout(1.0)
+            except OSError:
+                pass
             # Send farewell command so the server can clean up (JX4: CloseConnection).
             # Best-effort — never block on errors.
             try:
@@ -116,7 +126,6 @@ class PocoClient:
                 # server read the farewell and close its side, avoiding CLOSE_WAIT.
                 sock.shutdown(socket.SHUT_WR)
                 # Drain any remaining data from the server briefly.
-                sock.settimeout(1.0)
                 try:
                     while sock.recv(4096):
                         pass
