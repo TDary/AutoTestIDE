@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import traceback
 
 from PyQt5.QtWidgets import QApplication, QMessageBox
@@ -16,7 +17,7 @@ def main():
     os.chdir(os.path.expanduser("~"))
 
     setup_logging()
-    logger.info("AutoTest IDE starting")
+    logger.info("AutoTest IDE starting (build: %s)", time.strftime("%Y%m%d_%H%M%S"))
     try:
         app = QApplication(sys.argv)
         app.setApplicationName("AutoTest IDE")

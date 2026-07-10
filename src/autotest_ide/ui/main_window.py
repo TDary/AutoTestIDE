@@ -403,6 +403,8 @@ class MainWindow(QMainWindow):
         self._refresh_btn.setEnabled(True)
 
     def _connect_selected_device(self):
+        import time
+        t0 = time.time()
         data = self.device_combo.currentData()
         if not data:
             return
@@ -414,23 +416,29 @@ class MainWindow(QMainWindow):
             from PyQt5.QtWidgets import QMessageBox
             QMessageBox.warning(self, "无法连接", f"设备状态为 {state}，请先在手机上允许USB调试授权。")
             return
+        logger.info("STEP 1: _disconnect_device start %.3fs", time.time()-t0)
         self._disconnect_device()
+        logger.info("STEP 2: _disconnect_device done %.3fs", time.time()-t0)
         sdk_name = self.sdk_combo.currentData() or "jx4"
-        logger.info("Connecting device kind=%s identifier=%s sdk=%s", kind, identifier, sdk_name)
+        logger.info("STEP 3: connect_local start kind=%s port=%s sdk=%s %.3fs", kind, identifier, sdk_name, time.time()-t0)
         if kind == "android":
             self._conn_ctrl.connect_android(serial=identifier, sdk_name=sdk_name)
         else:
             self._conn_ctrl.connect_local(port=identifier, sdk_name=sdk_name)
+        logger.info("STEP 4: connect_local done %.3fs — UI should be responsive now", time.time()-t0)
 
     def _on_device_connected_ui(self, device):
         """UI updates after ConnectionController reports device connected."""
+        import time; t0 = time.time()
         root = self._conn_ctrl.cached_root
         if root:
             self.tree_panel.load_tree(root)
+            logger.info("_on_device_connected_ui: tree_panel %.3fs", time.time()-t0)
         flat = self._conn_ctrl.cached_flat
         if flat:
             self.clickable_panel.set_device(device)
             self.clickable_panel.load_clickable_nodes(flat)
+            logger.info("_on_device_connected_ui: clickable_panel %.3fs", time.time()-t0)
         self.status_device.setText(f"  设备: {device.name}  ")
         sdk = self.sdk_combo.currentData() or "jx4"
         self.status_protocol.setText(f"  协议: {device.poco.protocol_version or '-'} ({sdk})  ")
@@ -438,6 +446,7 @@ class MainWindow(QMainWindow):
         self._conn_status.setStyleSheet(
             "color: #a6e3a1; font-size: 13px; font-weight: bold; padding: 2px 8px;"
         )
+        logger.info("_on_device_connected_ui: done %.3fs", time.time()-t0)
 
     def _on_device_disconnected_ui(self):
         """UI updates after ConnectionController reports device disconnected."""

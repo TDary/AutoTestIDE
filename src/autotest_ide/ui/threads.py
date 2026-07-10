@@ -17,6 +17,7 @@ class ScreenshotWorker(QThread):
         self._device = device
         self._interval = 1.0 / fps
         self._stop_event = threading.Event()
+        self._consecutive_failures = 0
 
     def run(self):
         while not self._stop_event.wait(timeout=self._interval):
@@ -28,8 +29,19 @@ class ScreenshotWorker(QThread):
             try:
                 png_bytes = self._device.poco.screenshot()
                 self.screenshot_ready.emit(png_bytes)
+                self._consecutive_failures = 0
+            except OSError as e:
+                # ImageGrab.grab() fails on fullscreen GPU-rendered windows
+                # — don't retry aggressively, back off exponentially
+                self._consecutive_failures += 1
+                logger.debug("Screenshot OSError: %s (failures=%d)", e, self._consecutive_failures)
+                backoff = min(2.0 * self._consecutive_failures, 10.0)
+                self._stop_event.wait(timeout=backoff)
             except Exception:
                 logger.warning("Screenshot capture failed", exc_info=True)
+                self._consecutive_failures += 1
+                backoff = min(2.0 * self._consecutive_failures, 10.0)
+                self._stop_event.wait(timeout=backoff)
 
     def stop(self):
         self.requestInterruption()

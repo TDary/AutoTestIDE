@@ -225,6 +225,7 @@ class ConnectionController(QObject):
 
     def _on_device_connected(self, device: Device):
         """Post-connect setup on MAIN THREAD: create bridge, workers, load tree."""
+        import time; t0 = time.time()
         # DeviceBridge
         self._device_bridge = DeviceBridge(device, self)
         self._device_bridge.status_changed.connect(self.status_changed.emit)
@@ -234,12 +235,15 @@ class ConnectionController(QObject):
         self._poco_worker.inspect_result.connect(self.inspect_result.emit)
         self._poco_worker.inspect_failed.connect(self.inspect_failed.emit)
         self._poco_worker.swipe_done.connect(self.swipe_done.emit)
+        logger.info("_on_device_connected: workers created %.3fs", time.time()-t0)
 
         # ScreenshotWorker
         self._start_screenshot_worker(device)
+        logger.info("_on_device_connected: screenshot started %.3fs", time.time()-t0)
 
         # Notify MainWindow first (so UI shows "connected")
         self.device_connected.emit(device)
+        logger.info("_on_device_connected: device_connected emitted %.3fs", time.time()-t0)
 
         # Load tree in background thread (get_root is blocking TCP)
         threading.Thread(
@@ -247,6 +251,7 @@ class ConnectionController(QObject):
             args=(device,),
             daemon=True,
         ).start()
+        logger.info("_on_device_connected: tree thread started %.3fs — all done", time.time()-t0)
 
     # -- Internal -------------------------------------------------------------
 

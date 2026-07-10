@@ -312,13 +312,33 @@ class JX4Protocol(PocoProtocol):
     def capture_screenshot(self) -> bytes | None:
         """Capture the primary screen using Pillow (PC only).
 
-        Raises on PIL failure so PocoClient.screenshot() won't fall through
-        to the broken socket path (JX4 has no binary screenshot command).
+        Uses ``ImageGrab.grab`` with ``include_layered_windows=False``
+        to avoid the GDI Window-Station lock that freezes the desktop when
+        capturing fullscreen GPU-rendered games.
+
+        A 5-second timeout guards against ``ImageGrab.grab()`` blocking
+        indefinitely on fullscreen DirectX / OpenGL windows.  If the grab
+        times out or fails, raises ``PocoError`` so PocoClient.screenshot()
+        won't fall through to the broken JX4 TCP screenshot path.
         """
         from PIL import ImageGrab
         from io import BytesIO
+        import concurrent.futures
 
-        img = ImageGrab.grab()
+        def _grab():
+            return ImageGrab.grab(include_layered_windows=False)
+
+        # ImageGrab.grab() can block indefinitely on fullscreen GPU windows.
+        # Run it with a timeout so it never freezes the UI.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(_grab)
+            try:
+                img = future.result(timeout=5.0)
+            except concurrent.futures.TimeoutError:
+                raise PocoError("ImageGrab.grab() timed out (fullscreen GPU window)")
+            except OSError as e:
+                raise PocoError(f"ImageGrab.grab() failed: {e}")
+
         buf = BytesIO()
         img.save(buf, format="PNG")
         return buf.getvalue()
