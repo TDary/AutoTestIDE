@@ -13,6 +13,7 @@ class TreePanel(QTreeView):
         self.setAlternatingRowColors(True)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._on_context_menu)
+        self.doubleClicked.connect(self._on_double_clicked)
         self._node_map: dict = {}
 
     def load_tree(self, root_node: dict):
@@ -90,4 +91,12 @@ class TreePanel(QTreeView):
             clipboard = QApplication.clipboard()
             clipboard.setText(path)
         elif action == insert_action:
+            self.insert_code_requested.emit(path)
+
+    def _on_double_clicked(self, index):
+        """Double-click a tree node to insert click code into the editor."""
+        if not index.isValid():
+            return
+        path = self._get_node_path(index)
+        if path:
             self.insert_code_requested.emit(path)

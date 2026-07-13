@@ -1,5 +1,6 @@
 from pathlib import Path
 import threading
+import time
 
 from PyQt5.QtCore import Qt, QSize, QTimer, pyqtSignal
 from PyQt5.QtGui import QPixmap
@@ -356,6 +357,7 @@ class MainWindow(QMainWindow):
         cc.inspect_failed.connect(self._on_inspect_failed)
         cc.swipe_done.connect(self._on_swipe_done)
         cc.screenshot_ready.connect(self.device_panel.update_screenshot)
+        cc.screenshot_failed.connect(self.device_panel.show_screenshot_failed)
         cc.tree_loaded.connect(self._on_tree_loaded)
         cc.connection_failed.connect(self._on_connection_failed)
 
@@ -364,6 +366,9 @@ class MainWindow(QMainWindow):
         self.device_panel.long_press_requested.connect(self._on_long_press_requested)
         self.device_panel.swipe_requested.connect(self._on_swipe_requested)
         self.device_panel.input_text_requested.connect(self._on_input_text_requested)
+        self.device_panel.coords_hovered.connect(
+            lambda x, y: self.status_coords.setText(f"  坐标: ({x}, {y})  ")
+        )
         self.tree_panel.selectionModel().selectionChanged.connect(self._on_tree_selection_changed)
         self.tree_panel.insert_code_requested.connect(self._on_insert_code_from_tree)
         self.clickable_panel.node_selected.connect(self._on_clickable_node_selected)
@@ -378,6 +383,12 @@ class MainWindow(QMainWindow):
 
     def _refresh_devices(self):
         self._refresh_btn.setEnabled(False)
+        # Disconnect old scan worker to prevent stale results overwriting fresh ones
+        if getattr(self, "_scan_worker", None):
+            try:
+                self._scan_worker.devices_found.disconnect(self._on_devices_found)
+            except TypeError:
+                pass
         self.device_combo.clear()
         self.device_combo.addItem("扫描设备中...", None)
         self._scan_worker = DeviceScanWorker(self._device_mgr, self)
@@ -443,12 +454,16 @@ class MainWindow(QMainWindow):
             self._conn_status.setStyleSheet(
                 "color: #a6e3a1; font-size: 13px; font-weight: bold; padding: 2px 8px;"
             )
+            self._connect_btn.setEnabled(False)
+            self._disconnect_btn.setEnabled(True)
         else:
             self._conn_status.setText(" ● 未连接 ")
             self._conn_status.setObjectName("conn_status_disconnected")
             self._conn_status.setStyleSheet(
                 "color: #f38ba8; font-size: 13px; font-weight: bold; padding: 2px 8px;"
             )
+            self._connect_btn.setEnabled(True)
+            self._disconnect_btn.setEnabled(False)
 
     def _on_device_connected_ui(self, device):
         """UI updates after ConnectionController reports device connected.
@@ -494,8 +509,15 @@ class MainWindow(QMainWindow):
         self.clickable_panel.load_clickable_nodes(flat_nodes)
 
     def _on_connection_failed(self, error_msg: str):
-        """Show connection failure dialog."""
+        """Show connection failure dialog with diagnostic tips."""
         from PyQt5.QtWidgets import QMessageBox
+
+        from autotest_ide.core.network import diagnose_handshake_failure
+
+        sdk = self.sdk_combo.currentData() or "jx4"
+        tip = diagnose_handshake_failure(error_msg, sdk)
+        if tip:
+            error_msg += "\n\n" + tip
         QMessageBox.warning(self, "连接失败", f"无法连接设备\n{error_msg}")
 
     def _disconnect_device(self):
@@ -627,7 +649,7 @@ class MainWindow(QMainWindow):
         self._code_gen_service.on_swipe_done(x1, y1, x2, y2)
 
     def _on_insert_code_from_tree(self, path: str):
-        self.editor.insert_locator_code(f"auto.find_and_tap('{path}')\n")
+        self.editor.insert_locator_code(f"auto.find_and_tap({path!r})\n")
 
     def _on_refresh_tree(self):
         """Trigger async tree refresh (actual UI update happens in _on_tree_loaded)."""
@@ -803,9 +825,11 @@ class MainWindow(QMainWindow):
         self.stop_action.setEnabled(True)
         self.run_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
+        self.device_panel.set_state_border("running")
         self.record_btn.setEnabled(False)
         self.stop_record_btn.setEnabled(False)
         self.device_panel.setEnabled(False)
+        self._run_start_time = time.time()
 
     def _on_run_finished(self, exit_code: int, report_path: str):
         self.run_action.setEnabled(True)
@@ -814,11 +838,15 @@ class MainWindow(QMainWindow):
         self.stop_btn.setEnabled(False)
         self.record_btn.setEnabled(True)
         self.device_panel.setEnabled(True)
-        logger.info("Script finished exit_code=%d report_path=%s", exit_code, report_path)
-        self.console.append_text(f"脚本结束 (exit code: {exit_code})")
+        self.device_panel.set_state_border("idle")
+        elapsed = time.time() - getattr(self, "_run_start_time", time.time())
+        self.console.append_text(f"脚本结束 (耗时 {elapsed:.1f}s, exit code: {exit_code})")
         if report_path and Path(report_path).exists():
             try:
-                render_report(Path(report_path), Path(report_path).parent / "report.html")
+                html_path = Path(report_path).parent / "report.html"
+                render_report(Path(report_path), html_path)
+                import webbrowser
+                webbrowser.open(str(html_path))
             except Exception as e:
                 logger.warning("Report rendering failed: %s", e, exc_info=True)
 
@@ -829,6 +857,7 @@ class MainWindow(QMainWindow):
         self.stop_btn.setEnabled(False)
         self.record_btn.setEnabled(True)
         self.device_panel.setEnabled(True)
+        self.device_panel.set_state_border("idle")
 
     def _on_record_clicked(self):
         if not self._conn_ctrl.cached_flat:
@@ -849,6 +878,7 @@ class MainWindow(QMainWindow):
         self.record_action.setEnabled(False)
         self.stop_record_action.setEnabled(True)
         self.console.append_text("录制开始 — 点击设备截图将自动生成代码")
+        self.device_panel.set_state_border("recording")
 
     def _on_stop_record_clicked(self):
         self._code_gen_service.stop_recording()
@@ -858,6 +888,7 @@ class MainWindow(QMainWindow):
         self.record_action.setEnabled(True)
         self.stop_record_action.setEnabled(False)
         self.console.append_text("录制停止")
+        self.device_panel.set_state_border("idle")
 
     def closeEvent(self, event):
         if not self._check_unsaved():

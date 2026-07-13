@@ -1,12 +1,12 @@
-from PyQt5.QtCore import Qt, pyqtSignal, QRect, QPoint
-from PyQt5.QtGui import QPixmap, QPainter, QPen, QColor
+from PyQt5.QtCore import Qt, pyqtSignal, QRect, QPoint, QTimer
+from PyQt5.QtGui import QPixmap, QPainter, QPen, QColor, QFont
 from PyQt5.QtWidgets import QLabel, QWidget, QVBoxLayout, QHBoxLayout, QToolButton
 
 from autotest_ide.core.code_gen import OpMode
 
 
 class OverlayWidget(QWidget):
-    """Semi-transparent overlay for drawing highlight rectangles and swipe lines."""
+    """Semi-transparent overlay for drawing highlight rectangles, swipe lines, and failure text."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -14,6 +14,7 @@ class OverlayWidget(QWidget):
         self._swipe_start: QPoint = QPoint()
         self._swipe_end: QPoint = QPoint()
         self._show_swipe: bool = False
+        self._fail_text: bool = False
 
     def set_rects(self, rects: list):
         self._rects = rects
@@ -27,6 +28,10 @@ class OverlayWidget(QWidget):
 
     def clear_swipe_line(self):
         self._show_swipe = False
+        self.update()
+
+    def set_fail_text(self, active: bool):
+        self._fail_text = active
         self.update()
 
     def paintEvent(self, event):
@@ -46,6 +51,15 @@ class OverlayWidget(QWidget):
             painter.setPen(Qt.NoPen)
             painter.drawEllipse(self._swipe_start, 5, 5)
             painter.drawEllipse(self._swipe_end, 5, 5)
+        # Screenshot failure overlay
+        if self._fail_text:
+            painter.fillRect(self.rect(), QColor(30, 30, 46, 200))
+            font = painter.font()
+            font.setPixelSize(24)
+            font.setBold(True)
+            painter.setFont(font)
+            painter.setPen(QColor("#f38ba8"))
+            painter.drawText(self.rect(), Qt.AlignCenter, "截图失败")
         painter.end()
 
 
@@ -56,10 +70,12 @@ class DevicePanel(QWidget):
     long_press_requested = pyqtSignal(int, int)
     swipe_requested = pyqtSignal(int, int, int, int)
     input_text_requested = pyqtSignal(int, int)
+    coords_hovered = pyqtSignal(int, int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumWidth(240)
+        self.setMouseTracking(True)
 
         self._op_mode: OpMode = OpMode.CLICK
 
@@ -90,7 +106,9 @@ class DevicePanel(QWidget):
         # --- Screenshot label ---
         self._screenshot_label = QLabel()
         self._screenshot_label.setAlignment(Qt.AlignCenter)
-        self._screenshot_label.setStyleSheet("background-color: #11111b;")
+        self._screenshot_label.setStyleSheet(
+            "background-color: #11111b; border: 2px solid transparent;"
+        )
         layout.addWidget(self._screenshot_label)
 
         # --- Overlay ---
@@ -108,6 +126,12 @@ class DevicePanel(QWidget):
         # Swipe state
         self._swipe_start_dev: tuple = (0, 0)
         self._swiping: bool = False
+
+        # Screenshot failure overlay state
+        self._fail_overlay_active: bool = False
+        self._fail_clear_timer = QTimer(self)
+        self._fail_clear_timer.setSingleShot(True)
+        self._fail_clear_timer.timeout.connect(self._clear_fail_overlay)
 
     @property
     def op_mode(self) -> OpMode:
@@ -153,6 +177,11 @@ class DevicePanel(QWidget):
             self._current_pixmap = pm
         else:
             self._current_pixmap = data
+        # Clear screenshot failure overlay on success
+        if self._fail_overlay_active:
+            self._fail_overlay_active = False
+            self._fail_clear_timer.stop()
+            self._overlay.set_fail_text(False)
         label_size = self._screenshot_label.size()
         scaled = self._current_pixmap.scaled(label_size, Qt.KeepAspectRatio, Qt.FastTransformation)
         self._screenshot_label.setPixmap(scaled)
@@ -164,6 +193,31 @@ class DevicePanel(QWidget):
             self._offset_y = (label_size.height() - scaled.height()) / 2
         else:
             self._scale_ratio = 1.0
+
+    # --- Screenshot failure overlay ---
+
+    def show_screenshot_failed(self):
+        """Show a '截图失败' overlay on the screenshot area."""
+        self._fail_overlay_active = True
+        self._overlay.set_fail_text(True)
+        self._fail_clear_timer.start(3000)
+
+    def _clear_fail_overlay(self):
+        self._fail_overlay_active = False
+        self._overlay.set_fail_text(False)
+
+    # --- IDE state border indicator ---
+
+    def set_state_border(self, mode: str):
+        """Set screenshot border color to indicate IDE state.
+
+        mode: 'idle' -> transparent, 'recording' -> #a6e3a1, 'running' -> #f38ba8
+        """
+        colors = {"idle": "transparent", "recording": "#a6e3a1", "running": "#f38ba8"}
+        color = colors.get(mode, "transparent")
+        self._screenshot_label.setStyleSheet(
+            f"background-color: #11111b; border: 2px solid {color};"
+        )
 
     def highlight_region(self, bounds: dict):
         if self._current_pixmap.isNull() or not bounds:
@@ -217,19 +271,22 @@ class DevicePanel(QWidget):
             self.input_text_requested.emit(x, y)
 
     def mouseMoveEvent(self, event):
-        if not self._swiping:
-            return
-        # Compute overlay coordinates for the swipe trajectory line
-        start_overlay = self._widget_to_overlay(
-            self._screenshot_label.mapFromParent(
-                QPoint(
-                    int(self._swipe_start_dev[0] * self._scale_ratio + self._offset_x + self._screenshot_label.pos().x()),
-                    int(self._swipe_start_dev[1] * self._scale_ratio + self._offset_y + self._screenshot_label.pos().y()),
+        # Always update coordinates on hover for the status bar
+        x, y = self._widget_to_device(event.pos())
+        if x >= 0 and y >= 0:
+            self.coords_hovered.emit(x, y)
+        if self._swiping:
+            # Compute overlay coordinates for the swipe trajectory line
+            start_overlay = self._widget_to_overlay(
+                self._screenshot_label.mapFromParent(
+                    QPoint(
+                        int(self._swipe_start_dev[0] * self._scale_ratio + self._offset_x + self._screenshot_label.pos().x()),
+                        int(self._swipe_start_dev[1] * self._scale_ratio + self._offset_y + self._screenshot_label.pos().y()),
+                    )
                 )
             )
-        )
-        end_overlay = self._widget_to_overlay(event.pos())
-        self._overlay.set_swipe_line(start_overlay, end_overlay)
+            end_overlay = self._widget_to_overlay(event.pos())
+            self._overlay.set_swipe_line(start_overlay, end_overlay)
 
     def mouseReleaseEvent(self, event):
         if not self._swiping:
