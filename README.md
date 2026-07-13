@@ -1,6 +1,6 @@
 # AutoTest IDE
 
-跨平台游戏/应用 UI 自动化测试 IDE，基于 Poco UI 树协议直连设备——不依赖图像识别，不依赖截图匹配。使用 PyQt5 构建。
+跨平台游戏/应用 UI 自动化测试 IDE，基于 Poco UI 树协议直连设备——不依赖图像识别，不依赖截图匹配。使用 PyQt5 构建，Catppuccin Mocha 暗色主题。
 
 灵感来自 AirtestIDE，但专注于 Poco 协议，支持按游戏 SDK 扩展协议适配器。
 
@@ -13,174 +13,145 @@
   - USB 安卓设备：通过 `adb forward` 端口转发（JX4 自动扫描远端端口）
   - 本地 TCP：直连 `127.0.0.1:13000` 等端口
   - IP 直连：不依赖 adb，连接任意 `host:port`
-- **Pick-Point 检查流程** — 点击设备截图即可检查 UI 节点。命中节点在树中高亮、属性面板展示详情、定位代码自动插入编辑器。若 SDK 不支持 `getNodeByPos`，自动降级为 `auto.click(x, y)` 坐标点击
-- **脚本录制** — 开启录制模式（Ctrl+R），点击截图自动生成 `auto.find_and_tap(...)` 或 `auto.click(x, y)` 代码。录制与运行互斥，不会冲突
-- **设备实时预览** — 5 FPS 截图流，支持点击检查和区域高亮
-- **UI 树浏览器** — 层级树视图，显示名称/类型/文本，右键菜单可复制路径或插入点击代码
-- **属性面板** — 查看节点属性（bounds、text、type、component 等）
-- **定位器生成** — 从选中节点自动生成 `poco(...)` 或 `auto.find_and_tap(...)` 代码
-- **脚本编辑器** — Python 语法高亮，支持运行/保存/打开（F5 快捷键）
-- **测试运行器** — 子进程运行 `.air` 脚本，注入运行命名空间（`auto`、`snapshot`、`assert_exists`、`log`），回放过程中截图同步回显到设备面板
-- **HTML 测试报告** — 基于 `report.json` 渲染带截图的步骤报告（Jinja2 模板）
-- **UI 树自动刷新** — 10 秒间隔定时刷新，保持 UI 层级同步
-- **连接状态指示器** — 实时在线/离线状态徽章，心跳健康检查（连续 3 次失败 → 标记离线）
-- **现代暗色主题** — Catppuccin Mocha 配色方案，全局 QSS 样式
+- **Pick-Point 检查** — 点击截图上的 UI 元素，自动定位节点、获取属性、高亮区域
+- **四种操作模式** — 点击 / 长按 / 滑动 / 输入，工具栏一键切换
+- **脚本录制** — 点击截图自动生成 Python 脚本代码（`auto.find_and_tap()`、`assert_exists()` 等），录制模式下自动插入断言
+- **可点击节点面板** — 自动筛选 UI 树中所有 Button/Toggle 节点，双击直接插入点击代码
+- **UI 树浏览器** — 展示完整 UI 层级，双击节点插入代码，右键复制路径
+- **脚本运行** — 进程内执行（JX4）或子进程执行，控制台实时输出，完成后自动打开 HTML 报告
+- **连接诊断** — 握手失败时自动提示常见原因（SDK 选错、端口不对等）
+- **截图状态反馈** — 截图失败时 overlay 提示"截图失败"，录制中绿边框、运行中红边框
+- **悬停坐标** — 鼠标在截图上移动时状态栏实时显示设备坐标
 
-## 安装
+## 快速开始
 
-### 从源码安装
+### 安装依赖
 
 ```bash
-git clone <repo-url>
-cd AutoTestIDE
-pip install -e ".[dev]"
+pip install -r requirements.txt
 ```
 
-依赖要求：Python ≥ 3.10，PyQt5 ≥ 5.15，Jinja2，psutil，Pillow（PC 截图用）。安卓 USB 连接需 `adb` 在 PATH 中。
-
-### 构建 Windows 可执行文件
+### 运行
 
 ```bash
-pip install pyinstaller
+# 从源码运行
+python -m autotest_ide.app
+
+# 或使用打包版本
+dist/AutoTestIDE/AutoTestIDE.exe
+```
+
+### 打包
+
+```bash
 python -m PyInstaller autotest-ide.spec --noconfirm
 ```
 
-输出在 `dist/AutoTest IDE/`，运行 `AutoTest IDE.exe`。
+## 使用流程
 
-### 构建 Python 包
+1. **连接设备** — 选择 SDK（Poco / JX4），在设备列表中选择设备或输入 IP:端口，点击"连接"
+2. **浏览 UI** — 连接后自动加载 UI 树，截图实时刷新，可点击节点面板列出所有可交互元素
+3. **录制脚本** — 点击"录制"按钮，然后点击截图上的目标元素，自动生成代码到编辑器
+4. **运行脚本** — 点击"运行"按钮执行脚本，控制台实时输出，完成后自动打开 HTML 报告
 
-```bash
-pip install build
-python -m build
+## 脚本 API
+
+用户脚本可用以下 API：
+
+```python
+# 点击
+auto.find_and_tap('Panel/Btn_Play')  # 按路径定位点击
+auto.click(100, 200)                   # 按坐标点击
+
+# 长按
+auto.long_click(100, 200, duration=2.0)
+
+# 滑动
+auto.swipe(100, 500, 100, 200)
+
+# 输入文本
+auto.set_text('Panel/InputField', 'hello')
+
+# 断言与等待
+assert_exists('Panel/Btn_Play')
+wait_for('Panel/Loading', timeout=10)
+wait_for_gone('Panel/Loading', timeout=10)
+
+# 截图与日志
+snapshot()
+log('测试步骤完成')
 ```
 
-生成 `dist/autotest_ide-0.1.0-py3-none-any.whl` 和 `.tar.gz`。
-
-## 使用方法
-
-### 启动
-
-```bash
-python -m autotest_ide
-```
-
-### 连接设备
-
-1. 从下拉框选择设备（USB、本地、或 IP 直连）
-2. 选择 SDK（Poco 标准协议 或 JX4）
-3. 点击 **⚡ 连接**
-4. 截图流和 UI 树将分别在左侧和右侧面板加载
-
-### 检查与录制
-
-- 点击设备截图上的任意位置，即可检查该坐标处的 UI 节点
-- 命中节点在 UI 树中高亮，属性面板显示其详细属性
-- 定位代码（`auto.find_and_tap(...)` 或 `auto.click(x, y)`）自动插入编辑器
-- 开启 **录制** 模式（Ctrl+R），记录一系列操作
-- 录制中点击截图自动生成操作代码
-- 点击 **停录**（Ctrl+Shift+R）停止录制
-
-### 运行脚本
-
-1. 在编辑器中编写或打开 `.py` 脚本
-2. 点击 **▶ 运行**（或 F5）
-3. 输出流式打印到控制台；运行结束后自动打开 HTML 报告
-
-脚本命名空间包含：
-- `auto` — 带录制功能的 `PocoClient` 包装（`RecordingPocoClient`）
-- `By` — 查找策略（`By.PATH`、`By.TAG`、`By.ID` 等）
-- `snapshot()` — 截图步骤
-- `assert_exists(locator, msg)` — 断言并记录
-- `log(msg)` — 记录日志步骤
-
-### 命令行运行脚本
-
-```bash
-python -m autotest_ide.runner.runtest test.air \
-    --device-type android \
-    --device_serial emulator-5554 \
-    --poco-port 13000 \
-    --protocol jx4 \
-    --timeout 600
-```
-
-`--protocol` 接受注册名称（`poco`、`jx4`）或完整限定符 `包.模块:类名`。
-
-## 架构
+## 项目结构
 
 ```
-src/autotest_ide/
-├── app.py                  — QApplication 入口
-├── core/
-│   ├── protocol_base.py    — PocoProtocol 抽象基类 (send/read/handshake/create_connection)
-│   ├── protocol_poco.py    — PocoTextProtocol 默认文本命令适配器
-│   ├── protocol.py         — 线路层帧编解码 (encode_command, read_json_frame, ...)
-│   ├── poco_client.py      — 同步 TCP 客户端，FIFO Future 请求/响应匹配
-│   ├── device.py           — Device 状态机 (disconnected → online → offline)
-│   ├── device_manager.py   — 设备发现 + 活跃设备生命周期管理
-│   ├── forwarder.py        — PortForwarder 抽象: AdbForwarder / LocalForwarder / DirectForwarder
-│   ├── locator.py          — 生成 poco(...) 和 auto.find_and_tap(...) 定位代码
-│   ├── report_model.py     — ReportStep / ReportSummary 数据类
-│   └── errors.py           — 类型化异常体系
-├── sdks/
-│   ├── poco/               — 重新导出 PocoTextProtocol
-│   └── jx4/protocol.py     — JX4Protocol (AltrunUnityDriver 线路格式 + 层级转换)
-├── runner/
-│   ├── runtest.py          — 子进程入口, --protocol 参数, PROTOCOL_REGISTRY
-│   ├── recorder.py         — RecordingPocoClient 包装 PocoClient 用于步骤上报
-│   ├── reporter.py         — 步骤 pass/fail、截图保存、JSON 输出
-│   └── runtime.py          — build_namespace() 注入脚本全局变量
-├── report/
-│   ├── __init__.py         — render_report() Jinja2 渲染
-│   ├── template.html
-│   ├── report.css
-│   └── report.js
-└── ui/
-    ├── main_window.py      — QMainWindow, 工具栏, 分割布局, 信号连接
-    ├── style.py             — DARK_STYLE 全局 QSS (Catppuccin Mocha)
-    ├── icons.py             — 基于 SVG 的图标工厂
-    ├── title_bar.py         — 自定义无边框标题栏
-    ├── device_panel.py      — 截图标签 + 点击覆盖层
-    ├── editor.py            — Python 语法高亮 + 定位代码插入
-    ├── tree_panel.py        — QTreeView UI 层级 + 右键菜单
-    ├── property_panel.py    — QTableWidget 属性查看器
-    ├── console.py           — 彩色日志输出
-    ├── threads.py           — ScreenshotWorker / PocoWorker / DeviceBridge (QThread)
-    ├── run_controller.py    — 子进程生命周期 + stop event
-    ├── record_controller.py — 录制状态机 + 代码生成
-    └── report_view.py       — QWebEngineView 或浏览器回退
+E:/AutoTestIDE/
+├── src/autotest_ide/          # 主代码
+│   ├── app.py                 # 入口
+│   ├── core/                  # 无 Qt 依赖的核心层
+│   │   ├── code_gen.py        # OpMode 枚举 + gen_* 代码生成 + _build_all_paths
+│   │   ├── locator.py         # poco(...) 定位字符串生成
+│   │   ├── network.py         # TCP 探测 + 连接诊断
+│   │   ├── poco_client.py     # TCP 客户端（FIFO Future 匹配，线程安全）
+│   │   ├── protocol_base.py   # PocoProtocol 抽象基类
+│   │   ├── protocol_poco.py   # 标准 Poco 协议实现
+│   │   ├── device.py          # Device 状态机 + 心跳
+│   │   ├── device_manager.py  # 设备发现与管理
+│   │   ├── forwarder.py       # 端口转发（本地 / adb / 直连）
+│   │   ├── errors.py          # 异常层级
+│   │   └── log.py             # 日志配置
+│   ├── sdks/                  # SDK 适配层
+│   │   └── jx4/
+│   │       ├── protocol.py    # JX4 协议（O(n) 响应读取，BitBlt PC 截图）
+│   │       └── helpers.py     # JX4 hierarchy → 标准 Poco 节点转换
+│   ├── ui/                    # Qt UI 层
+│   │   ├── main_window.py     # 主窗口（信号编排）
+│   │   ├── connection_controller.py  # 连接生命周期管理
+│   │   ├── device_panel.py    # 截图面板 + OpMode 工具栏 + 状态边框
+│   │   ├── tree_panel.py      # UI 树浏览器（双击插入代码）
+│   │   ├── clickable_panel.py # 可点击节点面板（tooltip + 后台验证）
+│   │   ├── property_panel.py  # 节点属性面板
+│   │   ├── editor.py          # 脚本编辑器（语法高亮）
+│   │   ├── console.py         # 控制台输出
+│   │   ├── code_gen_service.py # 录制状态 + 代码生成服务
+│   │   ├── run_controller.py  # 脚本运行控制（进程内/子进程）
+│   │   ├── threads.py         # QThread workers（截图/扫描/Poco 操作）
+│   │   ├── style.py           # Catppuccin Mocha QSS 主题
+│   │   └── report_view.py     # HTML 报告查看器
+│   └── runner/                # 脚本执行运行时
+│       ├── runtest.py         # 入口
+│       ├── runtime.py         # build_namespace + auto/By/assert_exists/wait_for
+│       ├── recorder.py        # RecordingPocoClient（步骤记录）
+│       └── reporter.py        # Reporter（HTML 报告生成）
+├── tests/                     # pytest 测试
+├── docs/                      # 设计文档与协议参考
+└── autotest-ide.spec          # PyInstaller 打包规格
 ```
 
-### 添加新的 SDK 适配器
+## 已知限制
 
-1. 创建 `src/autotest_ide/sdks/<name>/__init__.py` 和 `protocol.py`
-2. 实现 `PocoProtocol` 子类 — 覆写 `METHOD_MAP`（方法名映射）、`send_request`（发送请求）、`read_response`（读取响应）、`handshake`（握手），若需端口扫描还需覆写 `create_connection`
-3. 若 SDK 返回格式与 Poco 标准不同（如 JX4 的扁平节点字典），需覆写 `transform_result`
-4. 在 `runner/runtest.py:PROTOCOL_REGISTRY` 注册，使 CLI `--protocol <name>` 可用
-5. 在 `ui/main_window.py:_init_toolbar` 的 SDK 下拉框中添加条目
-
-`PocoClient` 采用组合模式——同一客户端代码适用于任意协议适配器。
-
-### JX4 SDK 注意事项
-
-AltrunUnityDriver（JX4）有以下特殊处理：
-
-- **线路格式**：分号分隔命令，`altstart::payload::altLog::log::altend` 响应帧
-- **连接方式**：端口扫描 13000–13004，短连接超时，成功后切换为长操作超时
-- **getNodeByPos**：SDK v2.4 未实现 — `inspect_by_point` 降级为 `auto.click(x, y)` 坐标点击
-- **截图方式**：PC 端通过 `Pillow.ImageGrab` 截屏（无 socket 命令可用）
-- **层级转换**：JX4 扁平节点 → Poco 嵌套格式，由 `_convert_jx4_node()` 完成
-- **安全断开**：发送 `CloseConnection` 告别 + `shutdown(SHUT_WR)` 半关闭 + 排空数据，防止 CLOSE_WAIT 僵尸连接
+- JX4 `getNodeByPos` Unity 端未实现，pick-point 降级为坐标点击（P0，等 SDK 修复）
+- JX4 hierarchy 不含坐标/bounds，客户端几何命中测试不可用
+- 无实时设备事件录制（仅拾取模式）
 
 ## 测试
 
 ```bash
-pytest tests/ -v
+# 运行全部测试（排除需要真实设备的测试）
+python -m pytest tests/ --ignore=tests/test_real_device.py
+
+# 仅运行 PocoClient 测试
+python -m pytest tests/test_poco_client.py -v
+
+# 真机测试（需要设备连接）
+AUTOTESTIDE_REAL_ANDROID_SERIAL=<序列号> python -m pytest tests/test_real_device.py
 ```
 
-154 个测试用例，覆盖协议适配器、PocoClient、Device 状态机、DeviceManager、端口转发、定位器生成、报告器、录制器、运行器集成、线程、运行控制器、录制控制器和 JX4 SDK。
+## 依赖
 
-真机冒烟测试默认跳过；启用需 `--run-real-device` 并设置 `AUTOTESTIDE_REAL_ANDROID_SERIAL=<序列号>`。
+- Python >= 3.8, PyQt5 >= 5.15, Jinja2 >= 3.0, psutil >= 5.9
+- 可选：Pillow（JX4 PC 截图）
+- 开发：pytest >= 7.0, pytest-qt >= 4.0, ruff >= 0.1
 
 ## 文档
 
