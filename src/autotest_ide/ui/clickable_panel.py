@@ -162,6 +162,8 @@ class ClickablePanel(QWidget):
             item = QTableWidgetItem(value)
             item.setForeground(fg)
             item.setData(Qt.UserRole, (node_id, path))
+            if col == 3:  # 路径列 — 可能截断，tooltip 显示完整路径
+                item.setToolTip(path)
             self._table.setItem(row, col, item)
 
     def _on_row_clicked(self, row: int, _col: int) -> None:

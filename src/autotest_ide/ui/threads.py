@@ -11,6 +11,7 @@ logger = getLogger(__name__)
 
 class ScreenshotWorker(QThread):
     screenshot_ready = pyqtSignal(bytes)
+    screenshot_failed = pyqtSignal()
 
     def __init__(self, device: Device, fps: int = 5, parent=None):
         super().__init__(parent)
@@ -35,12 +36,14 @@ class ScreenshotWorker(QThread):
                 self._consecutive_failures += 1
                 logger.warning("Screenshot failed (attempt %d): %s",
                                self._consecutive_failures, e)
+                self.screenshot_failed.emit()
                 backoff = min(2.0 * self._consecutive_failures, 10.0)
                 self._stop_event.wait(timeout=backoff)
             except Exception as e:
                 self._consecutive_failures += 1
                 logger.warning("Screenshot failed (attempt %d): %s",
                                self._consecutive_failures, e)
+                self.screenshot_failed.emit()
                 backoff = min(2.0 * self._consecutive_failures, 10.0)
                 self._stop_event.wait(timeout=backoff)
 

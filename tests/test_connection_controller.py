@@ -58,6 +58,7 @@ class MockPocoWorker(QObject):
 
 class MockScreenshotWorker(QObject):
     screenshot_ready = pyqtSignal(bytes)
+    screenshot_failed = pyqtSignal()
 
     def __init__(self, device, fps=5, parent=None):
         super().__init__(parent)

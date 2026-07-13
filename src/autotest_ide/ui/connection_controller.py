@@ -32,6 +32,7 @@ class ConnectionController(QObject):
     inspect_failed = pyqtSignal(str, int, int)
     swipe_done = pyqtSignal(bytes)
     screenshot_ready = pyqtSignal(bytes)
+    screenshot_failed = pyqtSignal()
     tree_loaded = pyqtSignal(list)          # flat node list
     connection_failed = pyqtSignal(str)     # error message
     handshake_done = pyqtSignal(object)     # Device -- tells main thread to do post-connect setup
@@ -269,6 +270,7 @@ class ConnectionController(QObject):
         self._stop_screenshot_worker_fast()
         self._screenshot_worker = ScreenshotWorker(device, fps=1, parent=self)
         self._screenshot_worker.screenshot_ready.connect(self.screenshot_ready.emit)
+        self._screenshot_worker.screenshot_failed.connect(self.screenshot_failed.emit)
         # Delayed start: wait 2s after connect before first screenshot
         # to avoid BitBlt locking the Window Station during handshake
         from PyQt5.QtCore import QTimer
